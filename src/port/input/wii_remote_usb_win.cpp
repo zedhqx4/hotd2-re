@@ -59,6 +59,7 @@ constexpr uint16_t kHciSetConnectionEncryption = 0x0413;
 constexpr uint16_t kHciLinkKeyRequestReply = 0x040B;
 constexpr uint16_t kHciLinkKeyRequestNegativeReply = 0x040C;
 constexpr uint16_t kHciWriteStoredLinkKey = 0x0C11;
+constexpr uint16_t kHciDeleteStoredLinkKey = 0x0C12;
 constexpr uint16_t kHciPinCodeRequestReply = 0x040D;
 constexpr uint16_t kHciQosSetup = 0x0807;
 constexpr uint16_t kHciSniffMode = 0x0803;
@@ -626,18 +627,26 @@ private:
         SaveLinkKeys();
     }
 
-    bool RestoreLinkKeys() {
+    void RestoreLinkKeys() {
+        // Match Dolphin: clear the adapter's possibly stale key table, then
+        // restore only keys remembered by this application.
+        const std::array<uint8_t, 7> deleteAll{0, 0, 0, 0, 0, 0, 1};
+        (void)SendCommand(kHciDeleteStoredLinkKey, deleteAll.data(),
+                          static_cast<uint8_t>(deleteAll.size()));
+
+        size_t written = 0;
         for (const auto& [address, key] : linkKeys_) {
+            if (written >= 11) // HCI Write Stored Link Key allows at most 11 entries.
+                break;
             std::vector<uint8_t> parameters;
             parameters.reserve(23);
             parameters.push_back(1);
             parameters.insert(parameters.end(), address.begin(), address.end());
             parameters.insert(parameters.end(), key.begin(), key.end());
-            if (!SendCommand(kHciWriteStoredLinkKey, parameters.data(),
-                             static_cast<uint8_t>(parameters.size())))
-                return false;
+            if (SendCommand(kHciWriteStoredLinkKey, parameters.data(),
+                            static_cast<uint8_t>(parameters.size())))
+                ++written;
         }
-        return true;
     }
 
     bool InitializeAdapter() {
@@ -652,10 +661,7 @@ private:
             return false;
         }
         std::copy_n(response.begin() + 6, localAddress_.size(), localAddress_.begin());
-        if (!linkKeys_.empty() && !RestoreLinkKeys()) {
-            SetMessage("Could not restore saved Wii Remote link keys");
-            return false;
-        }
+        RestoreLinkKeys();
         initialized_ = true;
         SetMessage("USB Bluetooth ready; press red SYNC on the Wii Remote");
         return true;
