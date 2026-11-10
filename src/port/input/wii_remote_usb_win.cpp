@@ -38,9 +38,6 @@ std::unique_ptr<Backend> CreateWindowsBackend();
 namespace {
 using Clock = std::chrono::steady_clock;
 
-constexpr uint16_t kDefaultVid = 0x0A12;
-constexpr uint16_t kDefaultPid = 0x0001;
-constexpr uint16_t kIntelUsbVendorId = 0x8087;
 constexpr uint8_t kUsbHciClass = 0xE0;
 constexpr uint8_t kUsbHciSubclass = 0x01;
 constexpr uint8_t kUsbHciProtocol = 0x01;
@@ -185,7 +182,11 @@ bool FindHciInterface(libusb_device* device, HciInterface& result) {
     return found;
 }
 
-bool HasUsbHciAdapter() {
+bool HasUsbHciAdapter(int selectedVid, int selectedPid) {
+    const bool automatic = selectedVid == -1 && selectedPid == -1;
+    if (!automatic && (selectedVid <= 0 || selectedVid > 0xffff ||
+                       selectedPid <= 0 || selectedPid > 0xffff))
+        return false;
     libusb_context* context = nullptr;
     if (libusb_init(&context) != LIBUSB_SUCCESS)
         return false;
@@ -196,8 +197,10 @@ bool HasUsbHciAdapter() {
     if (count >= 0) {
         for (ssize_t i = 0; i < count && !found; ++i) {
             libusb_device_descriptor descriptor{};
-            if (libusb_get_device_descriptor(devices[i], &descriptor) != LIBUSB_SUCCESS ||
-                descriptor.idVendor == kIntelUsbVendorId)
+            if (libusb_get_device_descriptor(devices[i], &descriptor) != LIBUSB_SUCCESS)
+                continue;
+            if (!automatic && (descriptor.idVendor != selectedVid ||
+                               descriptor.idProduct != selectedPid))
                 continue;
             HciInterface hci;
             if (!FindHciInterface(devices[i], hci))
@@ -222,7 +225,8 @@ bool HasUsbHciAdapter() {
 
 class LibusbBackend final : public Backend {
 public:
-    LibusbBackend() : worker_([this] { Run(); }) {}
+    LibusbBackend(int selectedVid, int selectedPid)
+        : selectedVid_(selectedVid), selectedPid_(selectedPid), worker_([this] { Run(); }) {}
 
     ~LibusbBackend() override {
         stop_.store(true);
@@ -287,6 +291,8 @@ private:
     std::mutex commandMutex_;
     std::array<bool, 2> disconnectRequested_{};
     std::condition_variable cv_;
+    int selectedVid_ = -1;
+    int selectedPid_ = -1;
     std::thread worker_;
 
     std::mutex stateMutex_;
@@ -364,19 +370,15 @@ private:
         }
 
         bool opened = false;
-        // Prefer the dedicated CSR8510 tested by this project so an internal
-        // Windows Bluetooth radio is never selected merely due to USB order.
-        // Other claimable standard HCI adapters remain supported as fallback.
-        for (int pass = 0; pass < 2 && !opened; ++pass) {
-            for (ssize_t i = 0; i < count && !opened; ++i) {
-                libusb_device_descriptor descriptor{};
-                if (libusb_get_device_descriptor(devices[i], &descriptor) != LIBUSB_SUCCESS ||
-                    descriptor.idVendor == kIntelUsbVendorId)
-                    continue;
-                const bool preferred = descriptor.idVendor == kDefaultVid &&
-                                       descriptor.idProduct == kDefaultPid;
-                if ((pass == 0) != preferred)
-                    continue;
+        // Automatic mode accepts the first claimable standard USB HCI adapter.
+        // An explicit VID/PID selection never silently falls back to another device.
+        for (ssize_t i = 0; i < count && !opened; ++i) {
+            libusb_device_descriptor descriptor{};
+            if (libusb_get_device_descriptor(devices[i], &descriptor) != LIBUSB_SUCCESS)
+                continue;
+            if ((selectedVid_ != -1 || selectedPid_ != -1) &&
+                (descriptor.idVendor != selectedVid_ || descriptor.idProduct != selectedPid_))
+                continue;
 
                 HciInterface candidate{};
                 if (!FindHciInterface(devices[i], candidate))
@@ -1654,9 +1656,14 @@ private:
 std::unique_ptr<Backend> CreateBackend() { return CreateWindowsBackend(); }
 #else
 extern "C" WII_BT_API uint32_t WII_BT_CALL WiiBt_GetApiVersion(void) { return WII_BT_API_VERSION; }
-extern "C" WII_BT_API int WII_BT_CALL WiiBt_HasCompatibleAdapter(void) { return HasUsbHciAdapter() ? 1 : 0; }
-extern "C" WII_BT_API void* WII_BT_CALL WiiBt_Create(void) {
-    try { return new LibusbBackend(); } catch (...) { return nullptr; }
+extern "C" WII_BT_API int WII_BT_CALL WiiBt_HasCompatibleAdapter(int32_t vid, int32_t pid) {
+    return HasUsbHciAdapter(vid, pid) ? 1 : 0;
+}
+extern "C" WII_BT_API void* WII_BT_CALL WiiBt_Create(int32_t vid, int32_t pid) {
+    if (!((vid == -1 && pid == -1) ||
+          (vid > 0 && vid <= 0xffff && pid > 0 && pid <= 0xffff)))
+        return nullptr;
+    try { return new LibusbBackend(vid, pid); } catch (...) { return nullptr; }
 }
 extern "C" WII_BT_API void WII_BT_CALL WiiBt_Destroy(void* instance) {
     delete static_cast<LibusbBackend*>(instance);
