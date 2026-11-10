@@ -416,7 +416,7 @@ private:
         if (!opened) {
             libusb_exit(context_);
             context_ = nullptr;
-            SetMessage("No usable USB Bluetooth HCI adapter; check the libusbK driver");
+            SetMessage("No usable USB Bluetooth HCI adapter; check its WinUSB/libusbK driver");
             return false;
         }
 
