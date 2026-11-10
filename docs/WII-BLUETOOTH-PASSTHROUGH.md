@@ -10,7 +10,7 @@ Configure CMake with -DHOTD2_WII_USB_PASSTHROUGH=ON, then build the probe target
 
     .\wii_bluetooth_probe.exe
 
-The default target is USB\\VID_0A12&PID_0001. A different adapter can be inspected with:
+The default target is USB\VID_0A12&PID_0001. A different adapter can be inspected with:
 
     .\wii_bluetooth_probe.exe 0xVID 0xPID
 
