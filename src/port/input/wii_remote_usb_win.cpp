@@ -1284,6 +1284,8 @@ private:
     bool DisconnectSession(Session& session) {
         if (!handle_ || !session.inUse)
             return true;
+        if (session.ready)
+            (void)SendHidpOutput(session, {0x11, 0x00}); // Turn off this player's LED.
         const std::array<uint8_t, 3> parameters{
             static_cast<uint8_t>(session.handle),
             static_cast<uint8_t>(session.handle >> 8),
