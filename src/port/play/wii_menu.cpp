@@ -77,8 +77,8 @@ bool WiiMenu::Update(const MenuInput& in,input::WiiRemotes& remotes,std::vector<
     notice_.clear();
     if(player_<0){
         switch(cursor_){
-        case 0: remotes.settings.enabled=!remotes.settings.enabled;remotes.Configure();return true;
-        case 1: remotes.settings.usbPassthrough=!remotes.settings.usbPassthrough;remotes.Configure();return true;
+        case 0: remotes.settings.enabled=!remotes.settings.enabled;if(remotes.settings.enabled)remotes.Connect();else remotes.Configure();return true;
+        case 1: remotes.settings.usbPassthrough=!remotes.settings.usbPassthrough;if(remotes.settings.enabled)remotes.Connect();else remotes.Configure();return true;
         case 2: if(choose){remotes.Connect();return true;}break;
         case 3: remotes.settings.continuous=!remotes.settings.continuous;remotes.Configure();return true;
         case 4:case 5: if(choose){player_=cursor_-4;cursor_=0;pointer_={};}break;
