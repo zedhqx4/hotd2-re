@@ -980,15 +980,15 @@ private:
                 if (eventHandle != session.handle)
                     continue;
                 if (event[2] != 0) {
-                    char detail[160]{};
+                    // Keep the diagnostic short: the classic Wii menu renders
+                    // status.message on one line and clips longer messages.
+                    char detail[80]{};
                     std::snprintf(detail, sizeof(detail),
-                                  "HCI Authentication Complete failed: status=0x%02X, "
-                                  "PIN-request=%s, PIN-reply=%s, link-key-request=%s, "
-                                  "stored-link-key=%s",
-                                  event[2], sawPinRequest ? "yes" : "no",
-                                  sentPinReply ? "yes" : "no",
-                                  sawLinkKeyRequest ? "yes" : "no",
-                                  usedStoredLinkKey ? "yes" : "no");
+                                  "AUTH FAIL 0x%02X | PIN=%c REPLY=%c LKREQ=%c KEY=%c",
+                                  event[2], sawPinRequest ? 'Y' : 'N',
+                                  sentPinReply ? 'Y' : 'N',
+                                  sawLinkKeyRequest ? 'Y' : 'N',
+                                  usedStoredLinkKey ? 'Y' : 'N');
                     failureReason = detail;
                     return false;
                 }
@@ -1001,11 +1001,11 @@ private:
             PumpAcl(1);
         }
         if (!authenticated && failureReason.empty()) {
-            failureReason = std::string("Timed out waiting for Authentication Complete; PIN-request=") +
-                            (sawPinRequest ? "yes" : "no") +
-                            ", PIN-reply=" + (sentPinReply ? "yes" : "no") +
-                            ", link-key-request=" + (sawLinkKeyRequest ? "yes" : "no") +
-                            ", stored-link-key=" + (usedStoredLinkKey ? "yes" : "no");
+            failureReason = std::string("AUTH TIMEOUT | PIN=") +
+                            (sawPinRequest ? "Y" : "N") +
+                            " REPLY=" + (sentPinReply ? "Y" : "N") +
+                            " LKREQ=" + (sawLinkKeyRequest ? "Y" : "N") +
+                            " KEY=" + (usedStoredLinkKey ? "Y" : "N");
         }
         return authenticated;
     }
@@ -1401,8 +1401,8 @@ private:
             // to the working legacy host-address PIN exchange.
             if (linkKeys_.erase(session.address) != 0)
                 SaveLinkKeys();
-            SetMessage("Bluetooth link established, but Wii Remote authentication failed: " +
-                       authenticationFailure + "; discarded any unverified link key");
+            // This message is shown in the one-line legacy menu status field.
+            SetMessage(authenticationFailure);
             (void)DisconnectSession(session);
             session = {};
             ClearVisible(player);
