@@ -29,6 +29,7 @@ using Clock = std::chrono::steady_clock;
 
 constexpr uint16_t kDefaultVid = 0x0A12;
 constexpr uint16_t kDefaultPid = 0x0001;
+constexpr uint16_t kIntelUsbVendorId = 0x8087;
 constexpr uint8_t kUsbHciClass = 0xE0;
 constexpr uint8_t kUsbHciSubclass = 0x01;
 constexpr uint8_t kUsbHciProtocol = 0x01;
@@ -188,6 +189,10 @@ bool HasUsbHciAdapter() {
     bool found = false;
     if (count >= 0) {
         for (ssize_t i = 0; i < count && !found; ++i) {
+            libusb_device_descriptor descriptor{};
+            if (libusb_get_device_descriptor(devices[i], &descriptor) != LIBUSB_SUCCESS ||
+                descriptor.idVendor == kIntelUsbVendorId)
+                continue;
             HciInterface hci;
             if (!FindHciInterface(devices[i], hci))
                 continue;
@@ -359,7 +364,8 @@ private:
         for (int pass = 0; pass < 2 && !opened; ++pass) {
             for (ssize_t i = 0; i < count && !opened; ++i) {
                 libusb_device_descriptor descriptor{};
-                if (libusb_get_device_descriptor(devices[i], &descriptor) != LIBUSB_SUCCESS)
+                if (libusb_get_device_descriptor(devices[i], &descriptor) != LIBUSB_SUCCESS ||
+                    descriptor.idVendor == kIntelUsbVendorId)
                     continue;
                 const bool preferred = descriptor.idVendor == kDefaultVid &&
                                        descriptor.idProduct == kDefaultPid;
