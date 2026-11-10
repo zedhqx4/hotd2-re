@@ -56,7 +56,7 @@ bool Probe(libusb_device* d,bool filter,uint16_t vid,uint16_t pid) {
     libusb_device_handle* h=nullptr;
     rc=libusb_open(d,&h);
     if(rc!=LIBUSB_SUCCESS) {
-        std::printf("  OPEN FAILED: %s (check Zadig/libusbK)\n",libusb_error_name(rc));return false;
+        std::printf("  OPEN FAILED: %s (check the WinUSB/libusbK driver)\n",libusb_error_name(rc));return false;
     }
     auto manufacturer=UsbString(h,desc.iManufacturer),product=UsbString(h,desc.iProduct),serial=UsbString(h,desc.iSerialNumber);
     std::printf("  manufacturer: %s\n  product: %s\n  serial: %s\n",
@@ -78,7 +78,7 @@ bool Probe(libusb_device* d,bool filter,uint16_t vid,uint16_t pid) {
                 rc=libusb_claim_interface(h,alt.bInterfaceNumber);
                 if(rc==LIBUSB_SUCCESS) {
                     claimed=true;claimedInterface=alt.bInterfaceNumber;
-                    std::printf("      CLAIM OK: interface %d accessible through libusbK\n",claimedInterface);
+                    std::printf("      CLAIM OK: interface %d accessible through libusb\n",claimedInterface);
                 } else std::printf("      CLAIM FAILED: %s\n",libusb_error_name(rc));
             }
         }
