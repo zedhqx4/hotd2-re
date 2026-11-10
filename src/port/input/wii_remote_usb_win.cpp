@@ -915,7 +915,9 @@ private:
         return true;
     }
 
-    bool Authenticate(Session& session) {
+    bool Authenticate(Session& session, std::string& failureReason) {
+        bool sawPinRequest = false;
+        bool usedStoredLinkKey = false;
         std::array<uint8_t, 2> parameters{
             static_cast<uint8_t>(session.handle),
             static_cast<uint8_t>(session.handle >> 8)
@@ -934,6 +936,7 @@ private:
             }
 
             if (event[0] == kEventPinCodeRequest && event.size() >= 8) {
+                sawPinRequest = true;
                 std::array<uint8_t, 23> reply{};
                 std::copy_n(event.begin() + 2, 6, reply.begin());
                 reply[6] = 6;
@@ -947,6 +950,7 @@ private:
                 std::copy_n(event.begin() + 2, address.size(), address.begin());
                 const auto key = linkKeys_.find(address);
                 if (key != linkKeys_.end()) {
+                    usedStoredLinkKey = true;
                     std::vector<uint8_t> reply;
                     reply.insert(reply.end(), address.begin(), address.end());
                     reply.insert(reply.end(), key->second.begin(), key->second.end());
@@ -964,8 +968,16 @@ private:
                     static_cast<uint16_t>(ReadLe16(event.data() + 3) & 0x0FFF);
                 if (eventHandle != session.handle)
                     continue;
-                if (event[2] != 0)
+                if (event[2] != 0) {
+                    char detail[160]{};
+                    std::snprintf(detail, sizeof(detail),
+                                  "HCI Authentication Complete failed: status=0x%02X, "
+                                  "PIN-request=%s, stored-link-key=%s",
+                                  event[2], sawPinRequest ? "yes" : "no",
+                                  usedStoredLinkKey ? "yes" : "no");
+                    failureReason = detail;
                     return false;
+                }
                 authenticated = true;
             } else {
                 // Unrelated HCI events are not authentication input; do not requeue
@@ -973,6 +985,11 @@ private:
                 (void)IsAsynchronousEvent(event);
             }
             PumpAcl(1);
+        }
+        if (!authenticated && failureReason.empty()) {
+            failureReason = std::string("Timed out waiting for Authentication Complete; PIN-request=") +
+                            (sawPinRequest ? "yes" : "no") +
+                            ", stored-link-key=" + (usedStoredLinkKey ? "yes" : "no");
         }
         return authenticated;
     }
@@ -1360,15 +1377,16 @@ private:
         // Keep initial pairing identical to the known-good standalone sequence.
         // QoS/Sniff tuning is deliberately deferred until a basic HID link works.
         SetMessage("Bluetooth connected; authenticating Wii Remote", true);
-        if (!Authenticate(session)) {
+        std::string authenticationFailure;
+        if (!Authenticate(session, authenticationFailure)) {
             // A Link Key Notification can arrive before Authentication Complete.
             // Do not keep a key from a failed exchange: that would make every
             // later SYNC attempt reuse the same stale key instead of falling back
             // to the working legacy host-address PIN exchange.
             if (linkKeys_.erase(session.address) != 0)
                 SaveLinkKeys();
-            SetMessage("Bluetooth link established, but Wii Remote authentication failed; "
-                       "discarded any unverified link key for the next SYNC attempt");
+            SetMessage("Bluetooth link established, but Wii Remote authentication failed: " +
+                       authenticationFailure + "; discarded any unverified link key");
             (void)DisconnectSession(session);
             session = {};
             ClearVisible(player);
