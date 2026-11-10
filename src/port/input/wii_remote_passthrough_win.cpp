@@ -1,5 +1,5 @@
 #include "wii_remote.h"
-#include "wii_remote_passthrough_api.h"
+#include "wii_bt_api.h"
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -38,7 +38,7 @@ class PassthroughDllBackend final : public Backend {
 public:
     using GetVersionFn = uint32_t (WII_BT_CALL *)(void);
     using HasAdapterFn = int (WII_BT_CALL *)(int32_t, int32_t);
-    using CreateFn = void* (WII_BT_CALL *)(int32_t, int32_t);
+    using CreateFn = void* (WII_BT_CALL *)(int32_t, int32_t, int32_t, const char*);
     using DestroyFn = void (WII_BT_CALL *)(void*);
     using EnableFn = int (WII_BT_CALL *)(void*, int, int);
     using ScanFn = int (WII_BT_CALL *)(void*);
@@ -85,7 +85,18 @@ public:
             error = "No claimable USB Bluetooth HCI adapter; using Windows Bluetooth HID";
             return false;
         }
-        instance_ = create_(usbVid, usbPid);
+        std::string keyFileUtf8;
+        std::array<wchar_t, 32768> localAppData{};
+        const DWORD appDataLength = GetEnvironmentVariableW(
+            L"LOCALAPPDATA", localAppData.data(), static_cast<DWORD>(localAppData.size()));
+        if (appDataLength > 0 && appDataLength < localAppData.size()) {
+            const auto keyPath = std::filesystem::path(
+                std::wstring(localAppData.data(), appDataLength)) /
+                L"HOTD2RE" / L"wii_link_keys.txt";
+            keyFileUtf8 = keyPath.u8string();
+        }
+        instance_ = create_(usbVid, usbPid, WII_BT_PAIRING_SYNC,
+                            keyFileUtf8.empty() ? nullptr : keyFileUtf8.c_str());
         if (!instance_) {
             error = "Could not create USB Bluetooth passthrough runtime; using Windows Bluetooth HID";
             return false;
