@@ -30,8 +30,8 @@ int main() {
         return 1;
     }
     const auto version = Resolve<uint32_t (WII_BT_CALL *)(void)>(dll, "WiiBt_GetApiVersion");
-    const auto hasAdapter = Resolve<int (WII_BT_CALL *)(void)>(dll, "WiiBt_HasCompatibleAdapter");
-    const auto create = Resolve<void* (WII_BT_CALL *)(void)>(dll, "WiiBt_Create");
+    const auto hasAdapter = Resolve<int (WII_BT_CALL *)(int32_t, int32_t)>(dll, "WiiBt_HasCompatibleAdapter");
+    const auto create = Resolve<void* (WII_BT_CALL *)(int32_t, int32_t)>(dll, "WiiBt_Create");
     const auto destroy = Resolve<void (WII_BT_CALL *)(void*)>(dll, "WiiBt_Destroy");
     const auto enable = Resolve<int (WII_BT_CALL *)(void*, int, int)>(dll, "WiiBt_Enable");
     const auto scan = Resolve<int (WII_BT_CALL *)(void*)>(dll, "WiiBt_Scan");
@@ -44,7 +44,7 @@ int main() {
         FreeLibrary(dll);
         return 1;
     }
-    void* instance = create();
+    void* instance = create(-1, -1);
     if (!instance || !enable(instance, 0, 0)) {
         std::fprintf(stderr, "FAIL: backend lifecycle initialization\n");
         if (instance) destroy(instance);
