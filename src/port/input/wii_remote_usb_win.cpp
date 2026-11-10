@@ -917,14 +917,18 @@ private:
 
     bool Authenticate(Session& session, std::string& failureReason) {
         bool sawPinRequest = false;
+        bool sawLinkKeyRequest = false;
         bool usedStoredLinkKey = false;
+        bool sentPinReply = false;
         std::array<uint8_t, 2> parameters{
             static_cast<uint8_t>(session.handle),
             static_cast<uint8_t>(session.handle >> 8)
         };
         if (!SendCommand(kHciAuthenticationRequested, parameters.data(),
-                         static_cast<uint8_t>(parameters.size())))
+                         static_cast<uint8_t>(parameters.size()))) {
+            failureReason = "HCI Authentication Requested command failed";
             return false;
+        }
 
         bool authenticated = false;
         const auto deadline = Clock::now() + std::chrono::seconds(15);
@@ -943,9 +947,13 @@ private:
                 // SYNC-button bonding uses the host adapter address as the legacy PIN.
                 std::copy(localAddress_.begin(), localAddress_.end(), reply.begin() + 7);
                 if (!SendCommand(kHciPinCodeRequestReply, reply.data(),
-                                 static_cast<uint8_t>(reply.size())))
+                                 static_cast<uint8_t>(reply.size()))) {
+                    failureReason = "HCI PIN Code Request Reply command failed";
                     return false;
+                }
+                sentPinReply = true;
             } else if (event[0] == kEventLinkKeyRequest && event.size() >= 8) {
+                sawLinkKeyRequest = true;
                 std::array<uint8_t, 6> address{};
                 std::copy_n(event.begin() + 2, address.size(), address.begin());
                 const auto key = linkKeys_.find(address);
@@ -955,10 +963,13 @@ private:
                     reply.insert(reply.end(), address.begin(), address.end());
                     reply.insert(reply.end(), key->second.begin(), key->second.end());
                     if (!SendCommand(kHciLinkKeyRequestReply, reply.data(),
-                                     static_cast<uint8_t>(reply.size())))
+                                     static_cast<uint8_t>(reply.size()))) {
+                        failureReason = "HCI Link Key Request Reply command failed";
                         return false;
+                    }
                 } else if (!SendCommand(kHciLinkKeyRequestNegativeReply,
                                         address.data(), static_cast<uint8_t>(address.size()))) {
+                    failureReason = "HCI Link Key Request Negative Reply command failed";
                     return false;
                 }
             } else if (event[0] == kEventLinkKeyNotification && event.size() >= 25) {
@@ -972,8 +983,11 @@ private:
                     char detail[160]{};
                     std::snprintf(detail, sizeof(detail),
                                   "HCI Authentication Complete failed: status=0x%02X, "
-                                  "PIN-request=%s, stored-link-key=%s",
+                                  "PIN-request=%s, PIN-reply=%s, link-key-request=%s, "
+                                  "stored-link-key=%s",
                                   event[2], sawPinRequest ? "yes" : "no",
+                                  sentPinReply ? "yes" : "no",
+                                  sawLinkKeyRequest ? "yes" : "no",
                                   usedStoredLinkKey ? "yes" : "no");
                     failureReason = detail;
                     return false;
@@ -989,6 +1003,8 @@ private:
         if (!authenticated && failureReason.empty()) {
             failureReason = std::string("Timed out waiting for Authentication Complete; PIN-request=") +
                             (sawPinRequest ? "yes" : "no") +
+                            ", PIN-reply=" + (sentPinReply ? "yes" : "no") +
+                            ", link-key-request=" + (sawLinkKeyRequest ? "yes" : "no") +
                             ", stored-link-key=" + (usedStoredLinkKey ? "yes" : "no");
         }
         return authenticated;
