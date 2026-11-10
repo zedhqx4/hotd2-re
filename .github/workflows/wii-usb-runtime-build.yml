@@ -4,10 +4,12 @@ on:
   push:
     branches:
       - feature/wii-usb-host-runtime
+      - feature/wii-passthrough-dll
   pull_request:
     branches:
       - main
       - feature/wii-usb-host-runtime
+      - feature/wii-passthrough-dll
   workflow_dispatch:
 
 permissions:
