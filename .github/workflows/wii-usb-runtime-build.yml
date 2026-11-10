@@ -78,6 +78,11 @@ jobs:
             Write-Host "Size: $($exe.Length) bytes"
           }
 
+      - name: Build public x64 package with optional passthrough runtime
+        shell: pwsh
+        run: |
+          ./tools/make_dist.ps1 -Architecture x64 -Exe build/src/port/Release/hotd2.exe -Out build/dist-wii-passthrough
+
       - name: Upload x64 runtime build
         uses: actions/upload-artifact@v4
         with:
@@ -90,6 +95,7 @@ jobs:
             build/**/libusb-1.0.dll
             build/**/wii_bt_passthrough_api_test.exe
             build/**/wii_*probe.exe
+            build/dist-wii-passthrough/*.zip
           if-no-files-found: error
           retention-days: 14
 
