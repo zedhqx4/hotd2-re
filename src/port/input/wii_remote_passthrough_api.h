@@ -14,7 +14,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-#define WII_BT_API_VERSION 1u
+#define WII_BT_API_VERSION 2u
 typedef struct WiiBtPlayerState {
     uint32_t struct_size;
     int32_t battery;
@@ -34,8 +34,9 @@ typedef struct WiiBtSnapshot {
     char message[512];
 } WiiBtSnapshot;
 WII_BT_API uint32_t WII_BT_CALL WiiBt_GetApiVersion(void);
-WII_BT_API int WII_BT_CALL WiiBt_HasCompatibleAdapter(void);
-WII_BT_API void* WII_BT_CALL WiiBt_Create(void);
+/* Pass -1/-1 for automatic selection, or an explicit USB VID/PID pair. */
+WII_BT_API int WII_BT_CALL WiiBt_HasCompatibleAdapter(int32_t vid, int32_t pid);
+WII_BT_API void* WII_BT_CALL WiiBt_Create(int32_t vid, int32_t pid);
 WII_BT_API void WII_BT_CALL WiiBt_Destroy(void* instance);
 WII_BT_API int WII_BT_CALL WiiBt_Enable(void* instance, int enabled, int continuous);
 WII_BT_API int WII_BT_CALL WiiBt_Scan(void* instance);
