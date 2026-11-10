@@ -28,6 +28,13 @@ if(WIN32)
       GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(libusb_cmake)
 
+    # The runtime backend owns the selected USB HCI adapter only while Wii Remote
+    # support is enabled. The Windows HID backend remains the fallback for DolphinBar
+    # Mode 4 and ordinary Windows Bluetooth devices.
+    target_sources(port_input_core PRIVATE input/wii_remote_usb_win.cpp)
+    target_compile_definitions(port_input_core PRIVATE HOTD2_WII_USB_PASSTHROUGH)
+    target_link_libraries(port_input_core PUBLIC usb-1.0)
+
     add_executable(wii_bluetooth_probe ${PROJECT_SOURCE_DIR}/tools/wii_bluetooth_probe.cpp)
     target_link_libraries(wii_bluetooth_probe PRIVATE usb-1.0)
     target_compile_definitions(wii_bluetooth_probe PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
