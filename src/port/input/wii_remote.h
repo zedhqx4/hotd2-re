@@ -81,5 +81,6 @@ private:
     std::array<PlayerState,2> players_{};
     std::array<bool,2> hadTracking_{};
     bool backendPassthrough_=false;
+    int backendUsbVid_=-1, backendUsbPid_=-1;
 };
 } // namespace input
