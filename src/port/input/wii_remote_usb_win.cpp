@@ -722,7 +722,14 @@ private:
                     }
                 }
             } else if (event[0] == kEventInquiryComplete) {
-                complete = true;
+                if (event.size() < 3 || event[2] != 0) {
+                    SetMessage("Bluetooth inquiry completed with HCI error" +
+                               (event.size() >= 3 ? " 0x" : ""));
+                    complete = true;
+                    candidates.clear();
+                } else {
+                    complete = true;
+                }
             } else {
                 // Inquiry only consumes Inquiry Result and Inquiry Complete.
                 // Other asynchronous/controller events are handled by the HCI pump.
@@ -741,18 +748,24 @@ private:
         parameters[8] = static_cast<uint8_t>(candidate.clockOffset);
         parameters[9] = static_cast<uint8_t>(candidate.clockOffset >> 8);
         if (!SendCommand(kHciReadRemoteName, parameters.data(),
-                         static_cast<uint8_t>(parameters.size())))
+                         static_cast<uint8_t>(parameters.size()))) {
+            SetMessage("Bluetooth device found, but Read Remote Name was rejected");
             return false;
+        }
 
         std::vector<uint8_t> event;
         if (!WaitForEvent([&](const std::vector<uint8_t>& e) {
                 return e.size() >= 9 && e[0] == kEventRemoteNameComplete &&
                        SameAddress(candidate.address, e.data() + 3);
-            }, event, 5000))
+            }, event, 5000)) {
+            SetMessage("Bluetooth device found, but its name request timed out");
             return false;
+        }
 
-        if (event[2] != 0 || event.size() < 10)
+        if (event[2] != 0 || event.size() < 10) {
+            SetMessage("Bluetooth device found, but reading its name failed");
             return false;
+        }
         const char* name = reinterpret_cast<const char*>(event.data() + 9);
         const size_t available = event.size() - 9;
         const auto end = std::find(name, name + available, '\0');
@@ -1292,6 +1305,8 @@ private:
 
         SetMessage("Connecting to " + candidate.name, true);
         if (!ConnectBaseband(candidate, session)) {
+            SetMessage("Found " + candidate.name +
+                       ", but the Bluetooth baseband connection failed");
             session = {};
             ClearVisible(player);
             return false;
@@ -1301,23 +1316,41 @@ private:
         // QoS and Sniff Mode tune the same 0A12:0001 adapter path used by Dolphin.
         // They are best-effort; basic HID input remains available if unsupported.
         (void)ConfigureSniffMode(session);
+        SetMessage("Bluetooth connected; authenticating Wii Remote", true);
         if (!Authenticate(session)) {
+            SetMessage("Bluetooth link established, but Wii Remote authentication failed");
             (void)DisconnectSession(session);
             session = {};
             ClearVisible(player);
             return false;
         }
+        SetMessage("Wii Remote authenticated; enabling link encryption", true);
         if (!EnableEncryption(session)) {
+            SetMessage("Wii Remote authenticated, but Bluetooth encryption failed");
             (void)DisconnectSession(session);
             session = {};
             ClearVisible(player);
             return false;
         }
 
-        SetMessage("Opening Wii Remote HID channels", true);
-        if (!ConnectL2cap(session, session.control) ||
-            !ConnectL2cap(session, session.interrupt) ||
-            !ConfigureChannels(session)) {
+        SetMessage("Opening Wii Remote HID control channel", true);
+        if (!ConnectL2cap(session, session.control)) {
+            SetMessage("Bluetooth secured, but HID control channel (PSM 0x11) failed");
+            (void)DisconnectSession(session);
+            session = {};
+            ClearVisible(player);
+            return false;
+        }
+        SetMessage("Opening Wii Remote HID interrupt channel", true);
+        if (!ConnectL2cap(session, session.interrupt)) {
+            SetMessage("HID control opened, but HID interrupt channel (PSM 0x13) failed");
+            (void)DisconnectSession(session);
+            session = {};
+            ClearVisible(player);
+            return false;
+        }
+        if (!ConfigureChannels(session)) {
+            SetMessage("Wii Remote HID channels opened, but L2CAP configuration failed");
             (void)DisconnectSession(session);
             session = {};
             ClearVisible(player);
@@ -1325,8 +1358,15 @@ private:
         }
 
         session.ready = true;
-        if (!SendHidpOutput(session, {0x11, static_cast<uint8_t>(0x10u << player)}) ||
-            !InitializeIr(session)) {
+        if (!SendHidpOutput(session, {0x11, static_cast<uint8_t>(0x10u << player)})) {
+            SetMessage("Wii Remote HID connected, but the player LED command failed");
+            (void)DisconnectSession(session);
+            session = {};
+            ClearVisible(player);
+            return false;
+        }
+        if (!InitializeIr(session)) {
+            SetMessage("Wii Remote HID connected, but report/IR initialization failed");
             (void)DisconnectSession(session);
             session = {};
             ClearVisible(player);
@@ -1427,9 +1467,11 @@ private:
 
         auto candidates = Inquiry();
         if (candidates.empty()) {
-            SetMessage("No Wii Remote found; press its red SYNC button and retry");
+            SetMessage("No Bluetooth devices discovered; press red SYNC and retry");
             return false;
         }
+        SetMessage("Discovered " + std::to_string(candidates.size()) +
+                   " Bluetooth device(s); identifying Wii Remote(s)", true);
 
         bool connectedAny = false;
         for (auto& candidate : candidates) {
@@ -1454,8 +1496,13 @@ private:
                 connectedAny = true;
         }
 
-        if (!connectedAny && FindFreeSlot() >= 0)
-            SetMessage("No compatible Wii Remote connected; press SYNC and retry");
+        if (!connectedAny && FindFreeSlot() >= 0) {
+            // Preserve the most useful stage-specific failure reported above.
+            // Only use the generic message when no candidate passed identification.
+            if (message_.find("Bluetooth") == std::string::npos &&
+                message_.find("Wii Remote") == std::string::npos)
+                SetMessage("No compatible Wii Remote connected; press red SYNC and retry");
+        }
         return connectedAny;
     }
 
