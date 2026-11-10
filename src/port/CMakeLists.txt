@@ -10,11 +10,11 @@ target_include_directories(port_input_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_sources(port_input_core PRIVATE input/native_gun_feedback.cpp input/sinden_feedback.cpp input/feedback_settings.cpp)
 
 if(WIN32)
-  target_sources(port_input_core PRIVATE input/wii_remote_win.cpp)
+  target_sources(port_input_core PRIVATE input/wii_remote_win.cpp input/wii_remote_passthrough_win.cpp)
   target_compile_definitions(port_input_core PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
   target_link_libraries(port_input_core PUBLIC hid setupapi bthprops ws2_32)
 
-  option(HOTD2_WII_USB_PASSTHROUGH "Build the USB Bluetooth passthrough probes and libusb dependency" ON)
+  option(HOTD2_WII_USB_PASSTHROUGH "Build the optional USB Bluetooth passthrough DLL and diagnostics" ON)
   if(HOTD2_WII_USB_PASSTHROUGH)
     include(FetchContent)
     set(LIBUSB_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
@@ -28,12 +28,20 @@ if(WIN32)
       GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(libusb_cmake)
 
-    # The runtime backend owns the selected USB HCI adapter only while Wii Remote
-    # support is enabled. The Windows HID backend remains the fallback for DolphinBar
-    # Mode 4 and ordinary Windows Bluetooth devices.
-    target_sources(port_input_core PRIVATE input/wii_remote_usb_win.cpp)
-    target_compile_definitions(port_input_core PRIVATE HOTD2_WII_USB_PASSTHROUGH)
-    target_link_libraries(port_input_core PUBLIC usb-1.0)
+    # Build a separately loaded runtime. port_input_core never links libusb:
+    # Windows Bluetooth/HID remains the default and keeps working without this DLL.
+    add_library(wii_bt_passthrough SHARED
+      input/wii_remote.cpp
+      input/wii_remote_usb_win.cpp)
+    target_include_directories(wii_bt_passthrough PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_compile_definitions(wii_bt_passthrough PRIVATE
+      WIN32_LEAN_AND_MEAN NOMINMAX HOTD2_WII_USB_DLL_BUILD)
+    target_link_libraries(wii_bt_passthrough PRIVATE usb-1.0)
+    set_target_properties(wii_bt_passthrough PROPERTIES OUTPUT_NAME "wii_bt_passthrough")
+
+    add_executable(wii_bt_passthrough_api_test ${PROJECT_SOURCE_DIR}/tests/wii_bt_passthrough_api_test.cpp)
+    target_include_directories(wii_bt_passthrough_api_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/input)
+    add_dependencies(wii_bt_passthrough_api_test wii_bt_passthrough)
 
     add_executable(wii_bluetooth_probe ${PROJECT_SOURCE_DIR}/tools/wii_bluetooth_probe.cpp)
     target_link_libraries(wii_bluetooth_probe PRIVATE usb-1.0)
