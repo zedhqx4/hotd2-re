@@ -287,6 +287,8 @@ private:
     HciInterface hci_{};
     std::array<uint8_t, 6> localAddress_{};
     std::array<Session, 2> sessions_{};
+    std::array<std::array<uint8_t, 6>, 2> slotAddresses_{};
+    std::array<bool, 2> slotReserved_{};
     std::deque<std::vector<uint8_t>> pendingEvents_;
     std::map<std::array<uint8_t, 6>, std::array<uint8_t, 16>> linkKeys_;
     Clock::time_point scanDeadline_{};
@@ -306,6 +308,7 @@ private:
             static_cast<uint16_t>(visibleState_[player].pressed | state.pressed);
         visibleState_[player] = state;
         visibleState_[player].pressed = pendingPresses;
+        visibleState_[player].reserved = slotReserved_[player];
     }
 
     void ClearVisible(int player) {
@@ -313,11 +316,22 @@ private:
             return;
         std::lock_guard lock(stateMutex_);
         visibleState_[player] = {};
+        visibleState_[player].reserved = slotReserved_[player];
+    }
+
+    void ReleaseSlot(int player) {
+        if (player < 0 || player >= 2)
+            return;
+        slotReserved_[player] = false;
+        slotAddresses_[player] = {};
+        ClearVisible(player);
     }
 
     void ClearAllVisible() {
         std::lock_guard lock(stateMutex_);
         visibleState_ = {};
+        for (int i = 0; i < 2; ++i)
+            visibleState_[i].reserved = slotReserved_[i];
         scanning_ = false;
     }
 
@@ -728,6 +742,21 @@ private:
         return -1;
     }
 
+    int FindSlotForAddress(const std::array<uint8_t, 6>& address) const {
+        // Reconnect a known remote into its previous player slot first.
+        for (int i = 0; i < 2; ++i) {
+            if (!sessions_[i].inUse && slotReserved_[i] && slotAddresses_[i] == address)
+                return i;
+        }
+        // A new remote may only occupy a slot which has not been reserved by
+        // a previously connected remote.
+        for (int i = 0; i < 2; ++i) {
+            if (!sessions_[i].inUse && !slotReserved_[i])
+                return i;
+        }
+        return -1;
+    }
+
     Session* FindSession(uint16_t connectionHandle) {
         for (auto& session : sessions_)
             if (session.inUse && session.handle == connectionHandle)
@@ -762,6 +791,8 @@ private:
         session.inUse = true;
         session.ready = false;
         session.address = candidate.address;
+        slotAddresses_[session.player] = candidate.address;
+        slotReserved_[session.player] = true;
         session.handle = static_cast<uint16_t>(ReadLe16(event.data() + 3) & 0x0FFF);
         session.state = {};
         session.state.reserved = true;
@@ -1308,8 +1339,8 @@ private:
             for (int i = 0; i < 2; ++i) {
                 if (sessions_[i].inUse && sessions_[i].handle == eventHandle) {
                     sessions_[i] = {};
-                    ClearVisible(i);
-                    SetMessage("Wii Remote disconnected");
+                    ClearVisible(i); // Keep the address reserved for the same remote.
+                    SetMessage("Wii Remote disconnected; player slot reserved");
                 }
             }
         } else if (event[0] == kEventQosSetupComplete && event.size() >= 3) {
@@ -1342,8 +1373,8 @@ private:
             if (now - session.lastReport > std::chrono::seconds(5)) {
                 (void)DisconnectSession(session);
                 session = {};
-                ClearVisible(i);
-                SetMessage("Wii Remote timed out; press Connect to retry");
+                ClearVisible(i); // Keep this player's slot for the same Bluetooth address.
+                SetMessage("Wii Remote timed out; player slot reserved");
                 continue;
             }
             if (now - session.lastStatus > std::chrono::seconds(10)) {
@@ -1391,9 +1422,9 @@ private:
             if (!ReadRemoteName(candidate))
                 continue;
 
-            const int slot = FindFreeSlot();
+            const int slot = FindSlotForAddress(candidate.address);
             if (slot < 0)
-                break;
+                continue;
             if (ConnectCandidate(candidate, slot))
                 connectedAny = true;
         }
@@ -1406,6 +1437,8 @@ private:
     void HandleCommands() {
         if (swapRequested_.exchange(false)) {
             std::swap(sessions_[0], sessions_[1]);
+            std::swap(slotAddresses_[0], slotAddresses_[1]);
+            std::swap(slotReserved_[0], slotReserved_[1]);
             sessions_[0].player = 0;
             sessions_[1].player = 1;
             for (int i = 0; i < 2; ++i) {
@@ -1427,11 +1460,12 @@ private:
             disconnectRequested_ = {};
         }
         for (int i = 0; i < 2; ++i) {
-            if (!disconnect[i] || !sessions_[i].inUse)
+            if (!disconnect[i])
                 continue;
-            (void)DisconnectSession(sessions_[i]);
+            if (sessions_[i].inUse)
+                (void)DisconnectSession(sessions_[i]);
             sessions_[i] = {};
-            ClearVisible(i);
+            ReleaseSlot(i);
         }
 
         if (disconnectAll_.exchange(false)) {
@@ -1439,7 +1473,7 @@ private:
                 if (sessions_[i].inUse)
                     (void)DisconnectSession(sessions_[i]);
                 sessions_[i] = {};
-                ClearVisible(i);
+                ReleaseSlot(i);
             }
         }
     }
