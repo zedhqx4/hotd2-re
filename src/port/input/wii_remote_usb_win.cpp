@@ -229,7 +229,13 @@ public:
         : selectedVid_(selectedVid), selectedPid_(selectedPid), worker_([this] { Run(); }) {}
 
     ~LibusbBackend() override {
-        stop_.store(true);
+        // Do not stop the worker before it has processed disconnectAll_.
+        // The worker owns every libusb/HCI operation and must disconnect the
+        // remotes before releasing the USB interface.
+        enabled_.store(false);
+        scanRequested_.store(false);
+        disconnectAll_.store(true);
+        shutdownRequested_.store(true);
         cv_.notify_all();
         if (worker_.joinable())
             worker_.join();
@@ -287,6 +293,7 @@ private:
     std::atomic<bool> scanRequested_{false};
     std::atomic<bool> swapRequested_{false};
     std::atomic<bool> disconnectAll_{false};
+    std::atomic<bool> shutdownRequested_{false};
 
     std::mutex commandMutex_;
     std::array<bool, 2> disconnectRequested_{};
@@ -1599,6 +1606,8 @@ private:
                 HandleCommands(); // Release reserved slots and disconnect live remotes.
                 if (handle_ || context_)
                     CloseAdapter();
+                if (shutdownRequested_.load())
+                    break;
                 std::unique_lock lock(commandMutex_);
                 cv_.wait_for(lock, std::chrono::milliseconds(150),
                              [&] { return stop_ || enabled_.load(); });
