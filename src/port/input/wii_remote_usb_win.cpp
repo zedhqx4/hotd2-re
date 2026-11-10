@@ -1503,12 +1503,19 @@ private:
             if (known)
                 continue;
 
-            // The standalone discovery program connects directly from the
-            // Inquiry Result address. Prefer the Wii-specific Class of Device
-            // and avoid making a Remote Name request a prerequisite for known
-            // Nintendo remotes. Unknown classes still require the name check.
-            if (!IsKnownWiiRemoteClass(candidate.classOfDevice) && !ReadRemoteName(candidate))
-                continue;
+            // Match the proven standalone workflow: connect directly to the
+            // Bluetooth address from Inquiry Result. Remote Name Request is not
+            // reliable for Wii Remotes on this adapter and must never block pairing.
+            // Unknown Class-of-Device values are still attempted; authentication
+            // and HIDP are the definitive checks that this is a Wii Remote.
+            if (candidate.name.empty()) {
+                char address[18]{};
+                std::snprintf(address, sizeof(address), "%02X:%02X:%02X:%02X:%02X:%02X",
+                              candidate.address[5], candidate.address[4],
+                              candidate.address[3], candidate.address[2],
+                              candidate.address[1], candidate.address[0]);
+                candidate.name = std::string("Bluetooth device ") + address;
+            }
 
             const int slot = FindSlotForAddress(candidate.address);
             if (slot < 0)
