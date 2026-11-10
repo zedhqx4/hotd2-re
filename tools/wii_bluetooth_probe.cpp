@@ -120,6 +120,6 @@ int main(int argc,char** argv) {
     }
     libusb_free_device_list(list,1);libusb_exit(ctx);
     if(!found){std::puts(filter?"Adapter not found; check USB connection and VID/PID.":"No USB devices could be inspected.");return 3;}
-    if(!usable){std::puts("Adapter found, but no claimable standard HCI interface was detected.");return 4;}
+    if(!usable){std::puts("No claimable standard USB Bluetooth HCI adapter was detected.");return 4;}
     std::puts("PASS: adapter exposes a claimable USB Bluetooth HCI interface.");return 0;
 }
