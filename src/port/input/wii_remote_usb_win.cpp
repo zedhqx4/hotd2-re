@@ -1253,7 +1253,7 @@ private:
         if (event.empty())
             return;
         if (event[0] == kEventLinkKeyNotification && event.size() >= 25) {
-            // Future persistent key-store support can consume this event here.
+            RememberLinkKey(event);
             return;
         }
         if (event[0] == kEventDisconnectionComplete && event.size() >= 6) {
