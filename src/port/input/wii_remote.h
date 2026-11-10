@@ -27,6 +27,8 @@ struct Profile {
 };
 struct Settings {
     bool enabled=false, continuous=false, usbPassthrough=false;
+    // -1/-1 selects the first claimable USB Bluetooth HCI adapter; otherwise use this VID/PID.
+    int usbVid=-1, usbPid=-1;
     std::array<Profile,2> player;
     bool Load(const std::string& file);
     bool Save(const std::string& file) const;
@@ -56,7 +58,7 @@ public:
 };
 std::unique_ptr<Backend> CreateBackend();
 std::unique_ptr<Backend> CreateWindowsBackend();
-std::unique_ptr<Backend> CreatePassthroughBackend();
+std::unique_ptr<Backend> CreatePassthroughBackend(int usbVid, int usbPid);
 } // namespace wii
 
 class WiiRemotes final : public GunSource {
