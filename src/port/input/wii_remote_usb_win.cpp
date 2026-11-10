@@ -181,8 +181,19 @@ bool HasUsbHciAdapter() {
     if (count >= 0) {
         for (ssize_t i = 0; i < count && !found; ++i) {
             HciInterface hci;
-            if (FindHciInterface(devices[i], hci))
-                found = true;
+            if (!FindHciInterface(devices[i], hci))
+                continue;
+            libusb_device_handle* testHandle = nullptr;
+            if (libusb_open(devices[i], &testHandle) != LIBUSB_SUCCESS)
+                continue;
+            const int detach = libusb_set_auto_detach_kernel_driver(testHandle, 1);
+            const bool canDetach = detach == LIBUSB_SUCCESS || detach == LIBUSB_ERROR_NOT_SUPPORTED;
+            const bool canClaim = canDetach &&
+                libusb_claim_interface(testHandle, hci.number) == LIBUSB_SUCCESS;
+            if (canClaim)
+                libusb_release_interface(testHandle, hci.number);
+            libusb_close(testHandle);
+            found = canClaim;
         }
         libusb_free_device_list(devices, 1);
     }
@@ -212,7 +223,10 @@ public:
     }
 
     void Scan() override {
-        scanDeadline_ = Clock::now() + std::chrono::seconds(20);
+        {
+            std::lock_guard lock(commandMutex_);
+            scanDeadline_ = Clock::now() + std::chrono::seconds(20);
+        }
         scanRequested_.store(true);
         cv_.notify_all();
     }
@@ -280,7 +294,10 @@ private:
         if (player < 0 || player >= 2)
             return;
         std::lock_guard lock(stateMutex_);
+        const uint16_t pendingPresses =
+            static_cast<uint16_t>(visibleState_[player].pressed | state.pressed);
         visibleState_[player] = state;
+        visibleState_[player].pressed = pendingPresses;
     }
 
     void ClearVisible(int player) {
@@ -777,6 +794,7 @@ private:
             session.state.reserved = true;
             session.lastReport = Clock::now();
             Publish(session.player, session.state);
+            session.state.pressed = 0;
         }
     }
 
@@ -1141,7 +1159,7 @@ private:
 
     void PumpEvents() {
         std::vector<uint8_t> event;
-        while (ReadEvent(event, 0))
+        if (ReadEvent(event, 1))
             ProcessRuntimeEvent(event);
         while (!pendingEvents_.empty()) {
             event = std::move(pendingEvents_.front());
@@ -1296,12 +1314,19 @@ private:
             HandleCommands();
 
             const bool requested = scanRequested_.exchange(false);
+            Clock::time_point scanDeadline;
+            {
+                std::lock_guard lock(commandMutex_);
+                scanDeadline = scanDeadline_;
+            }
             const bool scanActive = requested || continuous_ ||
-                                    Clock::now() < scanDeadline_;
+                                    Clock::now() < scanDeadline;
             if (scanActive && FindFreeSlot() >= 0) {
                 (void)ConnectDiscoveredRemotes();
-                if (!continuous_ && Clock::now() >= scanDeadline_)
+                if (!continuous_ && Clock::now() >= scanDeadline) {
+                    std::lock_guard lock(commandMutex_);
                     scanDeadline_ = {};
+                }
             }
 
             Pump();
