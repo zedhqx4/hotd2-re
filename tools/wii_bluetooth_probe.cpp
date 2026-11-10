@@ -7,7 +7,6 @@
 #include <string>
 
 namespace {
-constexpr uint16_t kVid=0x0A12, kPid=0x0001;
 const char* TransferName(uint8_t t) {
     switch(t) {
     case LIBUSB_TRANSFER_TYPE_CONTROL:return "control";
@@ -48,11 +47,11 @@ bool Inspect(const libusb_interface_descriptor& a) {
     if(bluetoothClass&&layout)std::puts("      candidate: standard USB Bluetooth HCI interface");
     return bluetoothClass&&layout;
 }
-bool Probe(libusb_device* d,uint16_t vid,uint16_t pid) {
+bool Probe(libusb_device* d,bool filter,uint16_t vid,uint16_t pid) {
     libusb_device_descriptor desc{};
     int rc=libusb_get_device_descriptor(d,&desc);
-    if(rc!=LIBUSB_SUCCESS||desc.idVendor!=vid||desc.idProduct!=pid)return false;
-    std::printf("\nFound adapter %04x:%04x at bus %u address %u\n",vid,pid,
+    if(rc!=LIBUSB_SUCCESS||(filter&&(desc.idVendor!=vid||desc.idProduct!=pid)))return false;
+    std::printf("\nFound adapter %04x:%04x at bus %u address %u\n",desc.idVendor,desc.idProduct,
         libusb_get_bus_number(d),libusb_get_device_address(d));
     libusb_device_handle* h=nullptr;
     rc=libusb_open(d,&h);
@@ -93,12 +92,13 @@ bool Probe(libusb_device* d,uint16_t vid,uint16_t pid) {
 }
 }
 int main(int argc,char** argv) {
-    uint16_t vid=kVid,pid=kPid;
+    uint16_t vid=0,pid=0;bool filter=false;
     if(argc==2&&std::strcmp(argv[1],"--help")==0) {
-        std::puts("Usage: wii_bluetooth_probe [VID PID]\nDefault: 0x0A12 0x0001");return 0;
+        std::puts("Usage: wii_bluetooth_probe [VID PID]\nDefault: enumerate all USB devices and report claimable Bluetooth HCI adapters.");return 0;
     }
     if(argc!=1&&(argc!=3||!ParseId(argv[1],vid)||!ParseId(argv[2],pid))) {
         std::fprintf(stderr,"Usage: wii_bluetooth_probe [VID PID]\n");return 2;
+        filter=true;
     }
     libusb_context* ctx=nullptr;
     int rc=libusb_init(&ctx);
@@ -107,15 +107,17 @@ int main(int argc,char** argv) {
     libusb_device** list=nullptr;
     const ssize_t count=libusb_get_device_list(ctx,&list);
     if(count<0){std::fprintf(stderr,"USB enumeration: %s\n",libusb_error_name(static_cast<int>(count)));libusb_exit(ctx);return 1;}
-    std::printf("HOTD2RE USB Bluetooth probe\nTarget %04x:%04x; %lld USB devices enumerated\n",vid,pid,static_cast<long long>(count));
+    if(filter)std::printf("HOTD2RE USB Bluetooth probe\nFilter %04x:%04x; %lld USB devices enumerated\n",vid,pid,static_cast<long long>(count));
+    else std::printf("HOTD2RE USB Bluetooth probe\nEnumerating all USB devices; %lld total\n",static_cast<long long>(count));
     bool found=false,usable=false;
     for(ssize_t i=0;i<count;++i) {
         libusb_device_descriptor d{};
-        if(libusb_get_device_descriptor(list[i],&d)!=LIBUSB_SUCCESS||d.idVendor!=vid||d.idProduct!=pid)continue;
-        found=true;usable=Probe(list[i],vid,pid)||usable;
+        if(libusb_get_device_descriptor(list[i],&d)!=LIBUSB_SUCCESS)continue;
+        if(filter&&(d.idVendor!=vid||d.idProduct!=pid))continue;
+        found=true;usable=Probe(list[i],filter,vid,pid)||usable;
     }
     libusb_free_device_list(list,1);libusb_exit(ctx);
-    if(!found){std::puts("Adapter not found; check USB connection and VID/PID.");return 3;}
+    if(!found){std::puts(filter?"Adapter not found; check USB connection and VID/PID.":"No USB devices could be inspected.");return 3;}
     if(!usable){std::puts("Adapter found, but no claimable standard HCI interface was detected.");return 4;}
     std::puts("PASS: adapter exposes a claimable USB Bluetooth HCI interface.");return 0;
 }
