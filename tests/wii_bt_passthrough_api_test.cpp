@@ -44,6 +44,11 @@ int main() {
         FreeLibrary(dll);
         return 1;
     }
+    if (hasAdapter(-1, 1) != 0 || create(-1, 1) != nullptr) {
+        std::fprintf(stderr, "FAIL: incomplete VID/PID pair was not rejected\n");
+        FreeLibrary(dll);
+        return 1;
+    }
     void* instance = create(-1, -1);
     if (!instance || !enable(instance, 0, 0)) {
         std::fprintf(stderr, "FAIL: backend lifecycle initialization\n");
