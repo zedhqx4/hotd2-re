@@ -37,7 +37,7 @@ The direct USB path performs Bluetooth Classic inquiry and recognizes the standa
 
 ## DLL API and transport
 
-The game loads the DLL dynamically and resolves a versioned C API. API v2 accepts the configured USB VID/PID pair at backend creation; `-1/-1` requests automatic selection. The boundary uses fixed-width C structures only; no C++ STL objects or CRT-allocated memory cross the DLL boundary. The DLL owns its libusb context, USB HCI interface and Bluetooth worker thread.
+The game loads the shared `wii_bt_passthrough.dll` dynamically and resolves the public C API v3 from the [WIimoteDLL_Libusbk library](https://github.com/zedhqx4/WIimoteDLL_Libusbk). The library is included as a Git submodule at `third_party/WIimoteDLL_Libusbk`; HOTD2RE no longer compiles or maintains a second copy of the USB HCI/L2CAP/HIDP transport. API v3 accepts the configured USB VID/PID pair, SYNC or 1+2 pairing mode, and an optional caller-owned link-key file path. The boundary uses fixed-width C structures only; no C++ STL objects or CRT-allocated memory cross the DLL boundary. The DLL owns its libusb context, USB HCI interface and Bluetooth worker thread.
 
 The DLL uses HCI commands on the USB control pipe, HCI events on the USB interrupt IN endpoint, ACL data on USB bulk IN/OUT endpoints, HID Control PSM `0x0011`, HID Interrupt PSM `0x0013`, and continuous report `0x33` for core buttons, accelerometer and extended IR. A powered infrared sensor bar is required for pointing.
 
@@ -61,7 +61,7 @@ cmake --build build --config Release --target hotd2 play wii_remote_test wii_bt_
 
 The passthrough DLL and its `libusb-1.0.dll` dependency are emitted alongside the game executables. Build Win32 for x86 executables/DLLs or x64 with `-DHOTD2_ALLOW_64BIT=ON`. Packaging admits the pair only when both PE architectures match and includes libusb's `COPYING` license. The API smoke test loads the DLL and checks its exports, version, disabled lifecycle and snapshot ABI without requiring a Bluetooth adapter or Wii Remote. This is not physical hardware validation.
 
-The standalone diagnostic project `WIimoteDLL_Libusbk` is the protocol reference for the proven discovery/pairing sequence. The long-term direction is to make that repository the reusable, application-independent host library and have HOTD2RE consume it through a stable API. The current in-game implementation has only been physically verified with the CSR8510 and one Wii Remote; other adapters still need testing.
+The standalone library now owns the shared host implementation. Its `wii_discovery.exe` sample and HOTD2RE both load the same DLL. HOTD2RE supplies its existing `%LOCALAPPDATA%\\HOTD2RE\\wii_link_keys.txt` path to preserve existing pairings; other applications can choose their own per-user key file or use the library default. The SYNC transport has been physically verified with a CSR8510 A10 and one Wii Remote; the extracted DLL needs a fresh physical regression run, and other adapter chipsets still need testing.
 
 ## Scope
 
