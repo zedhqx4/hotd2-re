@@ -1388,7 +1388,14 @@ private:
         // QoS/Sniff tuning is deliberately deferred until a basic HID link works.
         SetMessage("Bluetooth connected; authenticating Wii Remote", true);
         if (!Authenticate(session)) {
-            SetMessage("Bluetooth link established, but Wii Remote authentication failed");
+            // A Link Key Notification can arrive before Authentication Complete.
+            // Do not keep a key from a failed exchange: that would make every
+            // later SYNC attempt reuse the same stale key instead of falling back
+            // to the working legacy host-address PIN exchange.
+            if (linkKeys_.erase(session.address) != 0)
+                SaveLinkKeys();
+            SetMessage("Bluetooth link established, but Wii Remote authentication failed; "
+                       "discarded any unverified link key for the next SYNC attempt");
             (void)DisconnectSession(session);
             session = {};
             ClearVisible(player);
