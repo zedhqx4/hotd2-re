@@ -96,8 +96,10 @@ int main(int argc,char** argv) {
     if(argc==2&&std::strcmp(argv[1],"--help")==0) {
         std::puts("Usage: wii_bluetooth_probe [VID PID]\nDefault: enumerate all USB devices and report claimable Bluetooth HCI adapters.");return 0;
     }
-    if(argc!=1&&(argc!=3||!ParseId(argv[1],vid)||!ParseId(argv[2],pid))) {
-        std::fprintf(stderr,"Usage: wii_bluetooth_probe [VID PID]\n");return 2;
+    if(argc!=1) {
+        if(argc!=3||!ParseId(argv[1],vid)||!ParseId(argv[2],pid)) {
+            std::fprintf(stderr,"Usage: wii_bluetooth_probe [VID PID]\n");return 2;
+        }
         filter=true;
     }
     libusb_context* ctx=nullptr;
