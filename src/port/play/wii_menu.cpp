@@ -123,7 +123,7 @@ void WiiMenu::Sprites(const game::ExeImage& exe,const input::WiiRemotes& remotes
         Text(exe,32,312,"P2  "+Status(status.player[1]),out,false,.65f);
         Text(exe,32,350,status.message,out,false,.62f);
         Text(exe,32,376,"OFF: Windows Bluetooth / DolphinBar Mode 4",out,false,.62f);
-        Text(exe,32,400,"ON: USB HCI adapter passthrough; Connect then red SYNC",out,false,.48f);
+        Text(exe,32,400,"ON: USB HCI passthrough; enable support to scan, then press red SYNC",out,false,.48f);
     }else{
         Text(exe,32,57,Status(status.player[player_]),out,false,.65f);
         for(int i=0;i<9;++i){
@@ -203,7 +203,7 @@ void WiiMenu::ModernHud(const input::WiiRemotes& remotes, game::WorldHud& hud) c
         const std::string message = status.scanning ? "SCANNING / " + status.message : status.message;
         ModernLines(hud, 34, 348, message);
         ModernText(hud, 34, 388, "OFF: Windows Bluetooth / DolphinBar Mode 4", .42f, 0xFFC1BAAC);
-        ModernText(hud, 34, 408, "ON: USB HCI passthrough; Connect then press red SYNC", .36f, 0xFFC1BAAC);
+        ModernText(hud, 34, 408, "ON: USB HCI passthrough; enable support to scan, then press red SYNC", .36f, 0xFFC1BAAC);
     } else {
         const auto& remote = status.player[player_];
         ModernText(hud, 34, 347, Status(remote), .48f, 0xFFC1BAAC);
