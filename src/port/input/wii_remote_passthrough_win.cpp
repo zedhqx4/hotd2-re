@@ -63,7 +63,7 @@ public:
                              L"wii_bt_passthrough.dll";
         module_ = LoadLibraryW(dllPath.c_str());
         if (!module_) {
-            error = "wii_bt_passthrough.dll not found; using Windows Bluetooth HID";
+            error = "Could not load wii_bt_passthrough.dll or one of its runtime dependencies; using Windows Bluetooth HID";
             return false;
         }
         getVersion_ = Resolve<GetVersionFn>("WiiBt_GetApiVersion");
