@@ -37,8 +37,8 @@ private:
 class PassthroughDllBackend final : public Backend {
 public:
     using GetVersionFn = uint32_t (WII_BT_CALL *)(void);
-    using HasAdapterFn = int (WII_BT_CALL *)(void);
-    using CreateFn = void* (WII_BT_CALL *)(void);
+    using HasAdapterFn = int (WII_BT_CALL *)(int32_t, int32_t);
+    using CreateFn = void* (WII_BT_CALL *)(int32_t, int32_t);
     using DestroyFn = void (WII_BT_CALL *)(void*);
     using EnableFn = int (WII_BT_CALL *)(void*, int, int);
     using ScanFn = int (WII_BT_CALL *)(void*);
@@ -52,7 +52,7 @@ public:
         }
         if (module_) FreeLibrary(module_);
     }
-    bool Open(std::string& error) {
+    bool Open(std::string& error, int usbVid, int usbPid) {
         std::array<wchar_t, 32768> path{};
         const DWORD count = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
         if (!count || count >= path.size()) {
@@ -81,11 +81,11 @@ public:
             error = "wii_bt_passthrough.dll has an incompatible API; using Windows Bluetooth HID";
             return false;
         }
-        if (!hasAdapter_()) {
+        if (!hasAdapter_(usbVid, usbPid)) {
             error = "No claimable USB Bluetooth HCI adapter; using Windows Bluetooth HID";
             return false;
         }
-        instance_ = create_();
+        instance_ = create_(usbVid, usbPid);
         if (!instance_) {
             error = "Could not create USB Bluetooth passthrough runtime; using Windows Bluetooth HID";
             return false;
@@ -152,10 +152,10 @@ private:
     PollFn poll_ = nullptr;
 };
 } // namespace
-std::unique_ptr<Backend> CreatePassthroughBackend() {
+std::unique_ptr<Backend> CreatePassthroughBackend(int usbVid, int usbPid) {
     auto backend = std::make_unique<PassthroughDllBackend>();
     std::string error;
-    if (backend->Open(error))
+    if (backend->Open(error, usbVid, usbPid))
         return backend;
     return std::make_unique<WindowsNoticeBackend>(std::move(error));
 }
