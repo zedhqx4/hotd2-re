@@ -484,7 +484,9 @@ private:
             }
             return true;
         }
-        if (event[0] == kEventNumberCompletedPackets || event[0] == kEventQosSetupComplete)
+        if (event[0] == 0x12 || event[0] == 0x14 ||
+            event[0] == kEventNumberCompletedPackets ||
+            event[0] == kEventQosSetupComplete)
             return true;
         return false;
     }
@@ -502,6 +504,8 @@ private:
     bool WaitForEvent(Predicate predicate, std::vector<uint8_t>& matched,
                       unsigned timeoutMs) {
         const auto deadline = Clock::now() + std::chrono::milliseconds(timeoutMs);
+        std::deque<std::vector<uint8_t>> deferred;
+        bool found = false;
         while (!stop_ && enabled_ && Clock::now() < deadline) {
             std::vector<uint8_t> event;
             if (!NextEvent(event, 5)) {
@@ -510,13 +514,20 @@ private:
             }
             if (predicate(event)) {
                 matched = std::move(event);
-                return true;
+                found = true;
+                break;
             }
             if (!IsAsynchronousEvent(event))
-                pendingEvents_.push_back(std::move(event));
+                deferred.push_back(std::move(event));
             PumpAcl(1);
         }
-        return false;
+        // Keep unrelated future-phase events available, but never put them back
+        // at the front while this wait loop is still running.
+        while (!deferred.empty()) {
+            pendingEvents_.push_back(std::move(deferred.front()));
+            deferred.pop_front();
+        }
+        return found;
     }
 
     static bool ParseHexByte(char high, char low, uint8_t& value) {
@@ -673,8 +684,10 @@ private:
                 }
             } else if (event[0] == kEventInquiryComplete) {
                 complete = true;
-            } else if (!IsAsynchronousEvent(event)) {
-                pendingEvents_.push_back(std::move(event));
+            } else {
+                // Inquiry only consumes Inquiry Result and Inquiry Complete.
+                // Other asynchronous/controller events are handled by the HCI pump.
+                (void)IsAsynchronousEvent(event);
             }
             PumpAcl(1);
         }
@@ -849,8 +862,10 @@ private:
                 if (event[2] != 0)
                     return false;
                 authenticated = true;
-            } else if (!IsAsynchronousEvent(event)) {
-                pendingEvents_.push_back(std::move(event));
+            } else {
+                // Unrelated HCI events are not authentication input; do not requeue
+                // them where they could block the next phase's event wait.
+                (void)IsAsynchronousEvent(event);
             }
             PumpAcl(1);
         }
