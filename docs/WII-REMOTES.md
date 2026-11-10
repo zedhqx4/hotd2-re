@@ -3,11 +3,11 @@
 HOTD2RE supports two separate Wii Remote connection paths.
 
 - **Windows Bluetooth HID (default):** ordinary Windows Bluetooth pairing and DolphinBar Mode 4. This path does not require the passthrough DLL or libusbK.
-- **USB Bluetooth passthrough (optional):** selected explicitly in Options > Wii Remotes. The game loads `wii_bt_passthrough.dll` from the same directory as `hotd2.exe` / `play.exe`. The DLL owns a compatible USB HCI adapter through libusbK.
+- **USB Bluetooth passthrough (optional):** selected explicitly in Options > Wii Remotes. The game loads `wii_bt_passthrough.dll` from the same directory as `hotd2.exe` / `play.exe`. It also requires the matching-architecture `libusb-1.0.dll` in that directory; both are shipped together as optional runtime files. The host DLL owns a compatible USB HCI adapter through libusbK.
 
 If the DLL is missing, its API version is incompatible, or no claimable USB Bluetooth HCI adapter is available, HOTD2RE falls back to Windows Bluetooth HID and displays the reason in the Wii Remote status page. The game input library itself does not link libusb and does not statically include the USB transport.
 
-The DLL must match the game executable architecture: x86 for a 32-bit executable or x64 for a 64-bit executable. With passthrough OFF, the DLL is not loaded and the CSR8510 is not claimed by HOTD2RE.
+Both runtime DLLs must match the game executable architecture: x86 for a 32-bit executable or x64 for a 64-bit executable. With passthrough OFF, neither DLL is loaded and the CSR8510 is not claimed by HOTD2RE.
 
 ## Adapter setup
 
@@ -51,7 +51,7 @@ Configure Windows with `-DHOTD2_WII_USB_PASSTHROUGH=ON` to build the optional DL
 cmake --build build --config Release --target hotd2 play wii_remote_test wii_bt_passthrough wii_bt_passthrough_api_test wii_bluetooth_probe wii_hci_probe
 ```
 
-The DLL is emitted alongside the game executables. Build Win32 for x86 executables/DLLs or x64 with `-DHOTD2_ALLOW_64BIT=ON`. The API smoke test loads the DLL and checks its exports, version, disabled lifecycle and snapshot ABI without requiring a Bluetooth adapter or Wii Remote. This is not physical hardware validation.
+The passthrough DLL and its `libusb-1.0.dll` dependency are emitted alongside the game executables. Build Win32 for x86 executables/DLLs or x64 with `-DHOTD2_ALLOW_64BIT=ON`. Packaging admits the pair only when both PE architectures match and includes libusb's `COPYING` license. The API smoke test loads the DLL and checks its exports, version, disabled lifecycle and snapshot ABI without requiring a Bluetooth adapter or Wii Remote. This is not physical hardware validation.
 
 The standalone diagnostic project `WIimoteDLL_Libusbk` remains a separate protocol diagnostic. Its demonstrated USB HCI, authentication, L2CAP and HIDP path informed the runtime transport implementation; the game now consumes that transport through an optional DLL. The in-game passthrough still requires physical validation with the CSR8510 and Wii Remote.
 
