@@ -139,7 +139,7 @@ static void ModernMenuPresentation() {
               "modern selection band matches the unchanged pointer hit rectangle");
     }
     menu.Open();
-    for (int i = 0; i < 5; ++i) MenuKey(menu, source, 0x20);
+    for (int i = 0; i < 4; ++i) MenuKey(menu, source, 0x20);
     MenuKey(menu, source, 8);
     menu.ModernHud(source, hud);
     Check(menu.SelectedPlayer() == 0 && HudText(hud, "PLAYER 1") && HudText(hud, "Calibrate aim") && HudText(hud, "DEFAULT"),
@@ -223,7 +223,7 @@ static void ModernMenuPresentation() {
     Check(HudText(hud, "No Bluetooth adapter was found") && HudText(hud, "P1 / Disconnected - waiting"),
           "connection errors remain readable on the overview");
     menu.Open();
-    for (int i = 0; i < 4; ++i) MenuKey(menu, source, 0x20);
+    for (int i = 0; i < 5; ++i) MenuKey(menu, source, 0x20);
     MenuKey(menu, source, 8);
     MenuKey(menu, source, 8);
     menu.ModernHud(source, hud);
