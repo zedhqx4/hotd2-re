@@ -1119,11 +1119,7 @@ private:
         return true;
     }
 
-    void PumpAcl(unsigned timeoutMs) {
-        uint16_t connectionHandle = 0;
-        std::vector<uint8_t> pdu;
-        if (!ReadAclPdu(connectionHandle, pdu, timeoutMs))
-            return;
+    void DispatchAclPdu(uint16_t connectionHandle, const std::vector<uint8_t>& pdu) {
         Session* session = FindSession(connectionHandle);
         if (!session || pdu.size() < 4)
             return;
@@ -1135,6 +1131,21 @@ private:
         else if (cid == session->control.localCid) {
             // HIDP control handshakes are not required for normal Wii Remote DATA
             // output on the interrupt channel, but keep the channel alive.
+        }
+    }
+
+    void PumpAcl(unsigned timeoutMs, unsigned maxPackets = 1) {
+        // One HCI ACL endpoint carries reports for every connected Wii Remote.
+        // Drain a bounded batch instead of leaving all but one queued report for
+        // later main-loop iterations. The first read may wait for new data; after
+        // each packet, a short read checks whether more packets are already queued.
+        for (unsigned i = 0; i < maxPackets; ++i) {
+            uint16_t connectionHandle = 0;
+            std::vector<uint8_t> pdu;
+            const unsigned readTimeout = (i == 0) ? timeoutMs : 1;
+            if (!ReadAclPdu(connectionHandle, pdu, readTimeout))
+                break;
+            DispatchAclPdu(connectionHandle, pdu);
         }
     }
 
@@ -1514,7 +1525,10 @@ private:
 
     void Pump() {
         PumpEvents();
-        PumpAcl(1);
+        // Keep the shared ACL queue moving when both remotes stream reports.
+        // The cap prevents a continuously busy endpoint from starving HCI events
+        // and command/UI work on the worker thread.
+        PumpAcl(1, 8);
         PumpSessions();
     }
 
