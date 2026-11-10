@@ -9,14 +9,22 @@ If the DLL is missing, its API version is incompatible, or no claimable USB Blue
 
 Both runtime DLLs must match the game executable architecture: x86 for a 32-bit executable or x64 for a 64-bit executable. With passthrough OFF, neither DLL is loaded and the CSR8510 is not claimed by HOTD2RE.
 
-## Adapter setup
+## Adapter selection
 
-Use a dedicated USB Bluetooth adapter for passthrough. For the tested CSR8510 A10:
+The passthrough runtime is **not tied to the CSR8510**. It looks for a standard USB Bluetooth HCI interface with the required Interrupt IN and Bulk IN/OUT endpoints, then verifies that libusb can open and claim it. The CSR8510 A10 (`0A12:0001`) is simply the first adapter used for physical testing.
 
-- USB VID:PID: `0A12:0001`
-- Install the `libusbK` driver on that adapter with Zadig.
-- Do **not** replace the driver for the Intel Bluetooth adapter used by Windows.
-- Close other applications that are controlling the same CSR8510 while passthrough is active.
+Selection is saved in `hotd2re_wii.ini`:
+
+- `usb_vid=-1` and `usb_pid=-1`: Automatic; use the first claimable standard HCI adapter.
+- Set **both** values to a USB Vendor ID and Product ID to select a specific device. Decimal and hexadecimal values are accepted.
+- A partial pair returns safely to Automatic.
+- An explicitly selected adapter that is unavailable or cannot be claimed does **not** silently fall back to another device.
+
+For the CSR8510 used in the first hardware tests, the explicit values are `usb_vid=0x0A12` and `usb_pid=0x0001`. This is an example, not a requirement.
+
+Run `wii_bluetooth_probe.exe` without arguments to inspect all USB devices and report claimable HCI adapters. To check a particular adapter, pass both IDs: `wii_bluetooth_probe.exe 0x0A12 0x0001`.
+
+On Windows, the selected adapter must be accessible through a libusb-supported driver such as WinUSB or libusbK. Merely appearing in Windows Bluetooth settings does not guarantee passthrough compatibility. Installing a libusb driver on an adapter can make it unavailable to the normal Windows Bluetooth stack; use a dedicated USB adapter when possible. Do not change the driver of your normal Windows radio unless you intend to take it away from Windows Bluetooth.
 
 ## Connect
 
@@ -29,7 +37,7 @@ The direct USB path performs Bluetooth Classic inquiry and recognizes the standa
 
 ## DLL API and transport
 
-The game loads the DLL dynamically and resolves a versioned C API. The boundary uses fixed-width C structures only; no C++ STL objects or CRT-allocated memory cross the DLL boundary. The DLL owns its libusb context, USB HCI interface and Bluetooth worker thread.
+The game loads the DLL dynamically and resolves a versioned C API. API v2 accepts the configured USB VID/PID pair at backend creation; `-1/-1` requests automatic selection. The boundary uses fixed-width C structures only; no C++ STL objects or CRT-allocated memory cross the DLL boundary. The DLL owns its libusb context, USB HCI interface and Bluetooth worker thread.
 
 The DLL uses HCI commands on the USB control pipe, HCI events on the USB interrupt IN endpoint, ACL data on USB bulk IN/OUT endpoints, HID Control PSM `0x0011`, HID Interrupt PSM `0x0013`, and continuous report `0x33` for core buttons, accelerometer and extended IR. A powered infrared sensor bar is required for pointing.
 
@@ -53,7 +61,7 @@ cmake --build build --config Release --target hotd2 play wii_remote_test wii_bt_
 
 The passthrough DLL and its `libusb-1.0.dll` dependency are emitted alongside the game executables. Build Win32 for x86 executables/DLLs or x64 with `-DHOTD2_ALLOW_64BIT=ON`. Packaging admits the pair only when both PE architectures match and includes libusb's `COPYING` license. The API smoke test loads the DLL and checks its exports, version, disabled lifecycle and snapshot ABI without requiring a Bluetooth adapter or Wii Remote. This is not physical hardware validation.
 
-The standalone diagnostic project `WIimoteDLL_Libusbk` remains a separate protocol diagnostic. Its demonstrated USB HCI, authentication, L2CAP and HIDP path informed the runtime transport implementation; the game now consumes that transport through an optional DLL. The in-game passthrough still requires physical validation with the CSR8510 and Wii Remote.
+The standalone diagnostic project `WIimoteDLL_Libusbk` is the protocol reference for the proven discovery/pairing sequence. The long-term direction is to make that repository the reusable, application-independent host library and have HOTD2RE consume it through a stable API. The current in-game implementation has only been physically verified with the CSR8510 and one Wii Remote; other adapters still need testing.
 
 ## Scope
 
