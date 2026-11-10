@@ -61,6 +61,8 @@ constexpr uint16_t kHciLinkKeyRequestNegativeReply = 0x040C;
 constexpr uint16_t kHciWriteStoredLinkKey = 0x0C11;
 constexpr uint16_t kHciPinCodeRequestReply = 0x040D;
 constexpr uint16_t kHciQosSetup = 0x0807;
+constexpr uint16_t kHciSniffMode = 0x0803;
+constexpr uint16_t kHciWriteLinkPolicySettings = 0x080D;
 
 constexpr uint16_t kL2capSignalingCid = 0x0001;
 constexpr uint16_t kL2capHidControlPsm = 0x0011;
@@ -771,6 +773,30 @@ private:
                            static_cast<uint8_t>(parameters.size()));
     }
 
+    bool ConfigureSniffMode(Session& session) {
+        // Match the Wii's real Bluetooth link policy. A 5 ms Sniff interval
+        // yields the Wii Remote's 200 Hz input report cadence.
+        std::array<uint8_t, 4> policy{
+            static_cast<uint8_t>(session.handle),
+            static_cast<uint8_t>(session.handle >> 8),
+            0x05, 0x00 // Enable role switch (0x01) and Sniff mode (0x04).
+        };
+        if (!SendCommand(kHciWriteLinkPolicySettings, policy.data(),
+                         static_cast<uint8_t>(policy.size())))
+            return false;
+
+        std::array<uint8_t, 10> sniff{
+            static_cast<uint8_t>(session.handle),
+            static_cast<uint8_t>(session.handle >> 8),
+            0x08, 0x00, // Maximum interval: 8 * 0.625 ms = 5 ms.
+            0x08, 0x00, // Minimum interval: 8 * 0.625 ms = 5 ms.
+            0x01, 0x00, // Sniff attempts.
+            0x00, 0x00  // Sniff timeout.
+        };
+        return SendCommand(kHciSniffMode, sniff.data(),
+                           static_cast<uint8_t>(sniff.size()));
+    }
+
     bool Authenticate(Session& session) {
         std::array<uint8_t, 2> parameters{
             static_cast<uint8_t>(session.handle),
@@ -1201,6 +1227,9 @@ private:
         }
 
         (void)ConfigureQos(session);
+        // QoS and Sniff Mode tune the same 0A12:0001 adapter path used by Dolphin.
+        // They are best-effort; basic HID input remains available if unsupported.
+        (void)ConfigureSniffMode(session);
         if (!Authenticate(session)) {
             (void)DisconnectSession(session);
             session = {};
