@@ -11,6 +11,10 @@
 #include <cstdint>
 #include <cstring>
 #include <deque>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <map>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -54,6 +58,7 @@ constexpr uint16_t kHciAuthenticationRequested = 0x0411;
 constexpr uint16_t kHciSetConnectionEncryption = 0x0413;
 constexpr uint16_t kHciLinkKeyRequestReply = 0x040B;
 constexpr uint16_t kHciLinkKeyRequestNegativeReply = 0x040C;
+constexpr uint16_t kHciWriteStoredLinkKey = 0x0C11;
 constexpr uint16_t kHciPinCodeRequestReply = 0x040D;
 constexpr uint16_t kHciQosSetup = 0x0807;
 
@@ -281,6 +286,7 @@ private:
     std::array<uint8_t, 6> localAddress_{};
     std::array<Session, 2> sessions_{};
     std::deque<std::vector<uint8_t>> pendingEvents_;
+    std::map<std::array<uint8_t, 6>, std::array<uint8_t, 16>> linkKeys_;
     Clock::time_point scanDeadline_{};
     bool initialized_ = false;
 
@@ -463,8 +469,7 @@ private:
         if (event.size() < 2)
             return true;
         if (event[0] == kEventLinkKeyNotification && event.size() >= 25) {
-            // Link keys are held in memory for the lifetime of this backend. A
-            // game integration can add persistent storage without changing HID input.
+            RememberLinkKey(event);
             return true;
         }
         if (event[0] == kEventDisconnectionComplete && event.size() >= 6) {
@@ -512,6 +517,102 @@ private:
         return false;
     }
 
+    static bool ParseHexByte(char high, char low, uint8_t& value) {
+        const auto digit = [](char c) -> int {
+            if (c >= '0' && c <= '9') return c - '0';
+            if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+            if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+            return -1;
+        };
+        const int h = digit(high);
+        const int l = digit(low);
+        if (h < 0 || l < 0)
+            return false;
+        value = static_cast<uint8_t>((h << 4) | l);
+        return true;
+    }
+
+    static std::filesystem::path LinkKeyPath() {
+        const char* localAppData = std::getenv("LOCALAPPDATA");
+        if (!localAppData || !*localAppData)
+            return {};
+        return std::filesystem::path(localAppData) / "HOTD2RE" / "wii_link_keys.txt";
+    }
+
+    void LoadLinkKeys() {
+        const auto path = LinkKeyPath();
+        if (path.empty())
+            return;
+        std::ifstream file(path);
+        std::string line;
+        while (std::getline(file, line)) {
+            const auto separator = line.find('=');
+            if (separator != 12 || line.size() != 45)
+                continue;
+            std::array<uint8_t, 6> address{};
+            std::array<uint8_t, 16> key{};
+            bool valid = true;
+            for (size_t i = 0; i < address.size(); ++i)
+                valid = ParseHexByte(line[i * 2], line[i * 2 + 1], address[i]) && valid;
+            for (size_t i = 0; i < key.size(); ++i)
+                valid = ParseHexByte(line[separator + 1 + i * 2],
+                                     line[separator + 2 + i * 2], key[i]) && valid;
+            if (valid)
+                linkKeys_[address] = key;
+        }
+    }
+
+    void SaveLinkKeys() {
+        const auto path = LinkKeyPath();
+        if (path.empty())
+            return;
+        std::error_code error;
+        std::filesystem::create_directories(path.parent_path(), error);
+        if (error)
+            return;
+        static constexpr char digits[] = "0123456789abcdef";
+        std::ofstream file(path, std::ios::trunc);
+        if (!file)
+            return;
+        for (const auto& [address, key] : linkKeys_) {
+            for (const uint8_t byte : address) {
+                file.put(digits[byte >> 4]);
+                file.put(digits[byte & 0x0F]);
+            }
+            file.put('=');
+            for (const uint8_t byte : key) {
+                file.put(digits[byte >> 4]);
+                file.put(digits[byte & 0x0F]);
+            }
+            file.put('\n');
+        }
+    }
+
+    void RememberLinkKey(const std::vector<uint8_t>& event) {
+        if (event.size() < 25 || event[0] != kEventLinkKeyNotification)
+            return;
+        std::array<uint8_t, 6> address{};
+        std::array<uint8_t, 16> key{};
+        std::copy_n(event.begin() + 2, address.size(), address.begin());
+        std::copy_n(event.begin() + 8, key.size(), key.begin());
+        linkKeys_[address] = key;
+        SaveLinkKeys();
+    }
+
+    bool RestoreLinkKeys() {
+        for (const auto& [address, key] : linkKeys_) {
+            std::vector<uint8_t> parameters;
+            parameters.reserve(23);
+            parameters.push_back(1);
+            parameters.insert(parameters.end(), address.begin(), address.end());
+            parameters.insert(parameters.end(), key.begin(), key.end());
+            if (!SendCommand(kHciWriteStoredLinkKey, parameters.data(),
+                             static_cast<uint8_t>(parameters.size())))
+                return false;
+        }
+        return true;
+    }
+
     bool InitializeAdapter() {
         std::vector<uint8_t> response;
         if (!SendCommand(kHciReset, nullptr, 0, &response)) {
@@ -524,6 +625,10 @@ private:
             return false;
         }
         std::copy_n(response.begin() + 6, localAddress_.size(), localAddress_.begin());
+        if (!linkKeys_.empty() && !RestoreLinkKeys()) {
+            SetMessage("Could not restore saved Wii Remote link keys");
+            return false;
+        }
         initialized_ = true;
         SetMessage("USB Bluetooth ready; press red SYNC on the Wii Remote");
         return true;
@@ -694,13 +799,22 @@ private:
                                  static_cast<uint8_t>(reply.size())))
                     return false;
             } else if (event[0] == kEventLinkKeyRequest && event.size() >= 8) {
-                // A persistent key store can be supplied by a higher-level game later.
-                // Until then, request legacy PIN authentication for this session.
-                if (!SendCommand(kHciLinkKeyRequestNegativeReply, event.data() + 2, 6))
+                std::array<uint8_t, 6> address{};
+                std::copy_n(event.begin() + 2, address.size(), address.begin());
+                const auto key = linkKeys_.find(address);
+                if (key != linkKeys_.end()) {
+                    std::vector<uint8_t> reply;
+                    reply.insert(reply.end(), address.begin(), address.end());
+                    reply.insert(reply.end(), key->second.begin(), key->second.end());
+                    if (!SendCommand(kHciLinkKeyRequestReply, reply.data(),
+                                     static_cast<uint8_t>(reply.size())))
+                        return false;
+                } else if (!SendCommand(kHciLinkKeyRequestNegativeReply,
+                                        address.data(), static_cast<uint8_t>(address.size()))) {
                     return false;
+                }
             } else if (event[0] == kEventLinkKeyNotification && event.size() >= 25) {
-                // The key is not logged or exposed through the game input API.
-                // It remains in the controller for the life of this HCI session.
+                RememberLinkKey(event);
             } else if (event[0] == kEventAuthenticationComplete && event.size() >= 5) {
                 const uint16_t eventHandle =
                     static_cast<uint16_t>(ReadLe16(event.data() + 3) & 0x0FFF);
@@ -1285,10 +1399,13 @@ private:
     }
 
     void Run() {
+        LoadLinkKeys();
         while (!stop_) {
             if (!enabled_) {
-                if (handle_ || context_)
+                if (handle_ || context_) {
+                    HandleCommands(); // Send HCI Disconnect for live remotes before releasing USB.
                     CloseAdapter();
+                }
                 std::unique_lock lock(commandMutex_);
                 cv_.wait_for(lock, std::chrono::milliseconds(150),
                              [&] { return stop_ || enabled_.load(); });
