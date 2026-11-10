@@ -61,7 +61,7 @@ static void MenuAudio() {
     play::MenuInput down; down.pressed = 0x20;
     menu.Update({}, source, &sounds);
     menu.Update(down, source, &sounds);
-    play::MenuInput hover; hover.pointer = true; hover.px = 60; hover.py = play::WiiMenu::RowY(3) + 20;
+    play::MenuInput hover; hover.pointer = true; hover.px = 60; hover.py = play::WiiMenu::RowY(2) + 20;
     menu.Update(hover, source, &sounds);
     quiet("Wii idle, keyboard movement and pointer hover are silent");
     play::MenuInput left; left.pressed = 0x40;
