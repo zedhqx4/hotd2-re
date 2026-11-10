@@ -723,8 +723,7 @@ private:
                 }
             } else if (event[0] == kEventInquiryComplete) {
                 if (event.size() < 3 || event[2] != 0) {
-                    SetMessage("Bluetooth inquiry completed with HCI error" +
-                               (event.size() >= 3 ? " 0x" : ""));
+                    SetMessage("Bluetooth inquiry completed with HCI error");
                     complete = true;
                     candidates.clear();
                 } else {
@@ -1496,13 +1495,7 @@ private:
                 connectedAny = true;
         }
 
-        if (!connectedAny && FindFreeSlot() >= 0) {
-            // Preserve the most useful stage-specific failure reported above.
-            // Only use the generic message when no candidate passed identification.
-            if (message_.find("Bluetooth") == std::string::npos &&
-                message_.find("Wii Remote") == std::string::npos)
-                SetMessage("No compatible Wii Remote connected; press red SYNC and retry");
-        }
+        // Keep the last stage-specific status visible when a candidate fails.
         return connectedAny;
     }
 
