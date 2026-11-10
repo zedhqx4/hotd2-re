@@ -29,8 +29,8 @@ bool Settings::Load(const std::string& file) {
         if(key=="enabled" && v>>number)loaded.enabled=number==1;
         else if(key=="continuous" && v>>number)loaded.continuous=number==1;
         else if(key=="usb_passthrough" && v>>number)loaded.usbPassthrough=number==1;
-        else if(key=="usb_vid" && v>>number && (number==-1 || (number>0 && number<=0xffff)))loaded.usbVid=number;
-        else if(key=="usb_pid" && v>>number && (number==-1 || (number>0 && number<=0xffff)))loaded.usbPid=number;
+        else if(key=="usb_vid" && (v>>std::setbase(0)>>number) && (number==-1 || (number>0 && number<=0xffff)))loaded.usbVid=number;
+        else if(key=="usb_pid" && (v>>std::setbase(0)>>number) && (number==-1 || (number>0 && number<=0xffff)))loaded.usbPid=number;
         for(int p=0;p<2;++p) {
             auto prefix="p"+std::to_string(p+1)+".";auto& profile=loaded.player[p];
             if(key==prefix+"smoothing" && v>>number)profile.smoothing=std::clamp(number,0,2);
