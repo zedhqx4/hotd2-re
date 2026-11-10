@@ -36,7 +36,7 @@ if(WIN32)
     target_include_directories(wii_bt_passthrough PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_compile_definitions(wii_bt_passthrough PRIVATE
       WIN32_LEAN_AND_MEAN NOMINMAX HOTD2_WII_USB_DLL_BUILD)
-    target_link_libraries(wii_bt_passthrough PRIVATE usb-1.0)
+    target_link_libraries(wii_bt_passthrough PRIVATE usb-1.0 winmm)
     set_target_properties(wii_bt_passthrough PROPERTIES OUTPUT_NAME "wii_bt_passthrough")
     # Keep the LGPL libusb runtime beside the optional host DLL. It is not loaded
     # unless the user selects USB passthrough; package tooling admits this pair only.
