@@ -40,6 +40,7 @@ constexpr uint8_t kUsbHciProtocol = 0x01;
 constexpr uint8_t kEventInquiryComplete = 0x01;
 constexpr uint8_t kEventInquiryResult = 0x02;
 constexpr uint8_t kEventConnectionComplete = 0x03;
+constexpr uint8_t kEventConnectionRequest = 0x04;
 constexpr uint8_t kEventDisconnectionComplete = 0x05;
 constexpr uint8_t kEventAuthenticationComplete = 0x06;
 constexpr uint8_t kEventRemoteNameComplete = 0x07;
@@ -57,6 +58,7 @@ constexpr uint16_t kHciReadBdAddr = 0x1009;
 constexpr uint16_t kHciInquiry = 0x0401;
 constexpr uint16_t kHciReadRemoteName = 0x0419;
 constexpr uint16_t kHciCreateConnection = 0x0405;
+constexpr uint16_t kHciAcceptConnectionRequest = 0x0409;
 constexpr uint16_t kHciDisconnect = 0x0406;
 constexpr uint16_t kHciAuthenticationRequested = 0x0411;
 constexpr uint16_t kHciSetConnectionEncryption = 0x0413;
@@ -87,6 +89,7 @@ struct Candidate {
     std::array<uint8_t, 6> address{};
     uint8_t pageScanRepetition = 0;
     uint16_t clockOffset = 0;
+    uint32_t classOfDevice = 0;
     std::string name;
 };
 
@@ -139,6 +142,11 @@ bool SameAddress(const std::array<uint8_t, 6>& a, const uint8_t* b) {
 
 bool IsWiiRemoteName(const std::string& name) {
     return name.rfind("Nintendo RVL-CNT-01", 0) == 0;
+}
+
+bool IsKnownWiiRemoteClass(uint32_t classOfDevice) {
+    // Nintendo RVL-CNT-01 and RVL-CNT-01-TR Class of Device values.
+    return classOfDevice == 0x002504 || classOfDevice == 0x000508;
 }
 
 bool FindHciInterface(libusb_device* device, HciInterface& result) {
@@ -456,7 +464,7 @@ private:
     }
 
     bool SendCommand(uint16_t opcode, const uint8_t* parameters, uint8_t parameterLength,
-                     std::vector<uint8_t>* response = nullptr, unsigned timeoutMs = 3000) {
+                     std::vector<uint8_t>* response = nullptr, unsigned timeoutMs = 10000) {
         if (!handle_)
             return false;
         std::array<uint8_t, 258> packet{};
@@ -650,6 +658,11 @@ private:
     }
 
     void RestoreLinkKeys() {
+        // Do not issue an extra controller command on first-time pairing. The
+        // known-good discovery tool goes directly from Reset/BD_ADDR to Inquiry
+        // and legacy PIN authentication when no application keys exist.
+        if (linkKeys_.empty())
+            return;
         // Match Dolphin: clear the adapter's possibly stale key table, then
         // restore only keys remembered by this application.
         const std::array<uint8_t, 7> deleteAll{0, 0, 0, 0, 0, 0, 1};
@@ -718,6 +731,11 @@ private:
                         std::copy_n(entry, candidate.address.size(), candidate.address.begin());
                         candidate.pageScanRepetition = entry[6];
                         candidate.clockOffset = ReadLe16(entry + 11);
+                        candidate.classOfDevice = static_cast<uint32_t>(entry[8]) |
+                            (static_cast<uint32_t>(entry[9]) << 8) |
+                            (static_cast<uint32_t>(entry[10]) << 16);
+                        if (IsKnownWiiRemoteClass(candidate.classOfDevice))
+                            candidate.name = "Nintendo Wii Remote";
                         const bool duplicate = std::any_of(candidates.begin(), candidates.end(),
                             [&](const Candidate& c) { return c.address == candidate.address; });
                         if (!duplicate)
@@ -805,27 +823,63 @@ private:
     }
 
     bool ConnectBaseband(const Candidate& candidate, Session& session) {
+        // Match the independently working wii_discovery --connect path exactly:
+        // all BR/EDR packet types, page-scan repetition R1, unknown clock offset,
+        // and permission for the controller to switch us to master.
         std::array<uint8_t, 13> parameters{};
         std::copy(candidate.address.begin(), candidate.address.end(), parameters.begin());
         parameters[6] = 0x18;
         parameters[7] = 0xCC;
-        parameters[8] = candidate.pageScanRepetition;
-        parameters[9] = 0;
-        parameters[10] = static_cast<uint8_t>(candidate.clockOffset);
-        parameters[11] = static_cast<uint8_t>(candidate.clockOffset >> 8);
-        parameters[12] = 0x01;
+        parameters[8] = 0x01; // Page scan repetition mode R1 (fixed by working probe).
+        parameters[9] = 0x00; // Reserved.
+        parameters[10] = 0x00; // Clock offset intentionally unknown, as in working probe.
+        parameters[11] = 0x00;
+        parameters[12] = 0x01; // Allow role switch.
 
         if (!SendCommand(kHciCreateConnection, parameters.data(),
                          static_cast<uint8_t>(parameters.size())))
             return false;
 
+        const auto deadline = Clock::now() + std::chrono::seconds(20);
+        std::deque<std::vector<uint8_t>> deferred;
         std::vector<uint8_t> event;
-        if (!WaitForEvent([&](const std::vector<uint8_t>& e) {
-                return e.size() >= 13 && e[0] == kEventConnectionComplete &&
-                       SameAddress(candidate.address, e.data() + 5);
-            }, event, 20000))
-            return false;
-        if (event[2] != 0)
+        bool connected = false;
+        while (!stop_ && enabled_ && Clock::now() < deadline && !connected) {
+            if (!NextEvent(event, 10)) {
+                PumpAcl(1);
+                continue;
+            }
+
+            if (event[0] == kEventConnectionRequest && event.size() >= 12 &&
+                SameAddress(candidate.address, event.data() + 2)) {
+                // SYNC can race with Create Connection: the remote may initiate
+                // its side of the ACL link first. The proven probe accepts that
+                // request as master instead of waiting only for Connection Complete.
+                std::array<uint8_t, 7> accept{};
+                std::copy(candidate.address.begin(), candidate.address.end(), accept.begin());
+                accept[6] = 0x00; // Become master.
+                if (!SendCommand(kHciAcceptConnectionRequest, accept.data(),
+                                 static_cast<uint8_t>(accept.size())))
+                    return false;
+                continue;
+            }
+
+            if (event[0] == kEventConnectionComplete && event.size() >= 13 &&
+                SameAddress(candidate.address, event.data() + 5)) {
+                if (event[2] != 0)
+                    return false;
+                connected = true;
+                break;
+            }
+
+            if (!IsAsynchronousEvent(event))
+                deferred.push_back(std::move(event));
+        }
+        while (!deferred.empty()) {
+            pendingEvents_.push_back(std::move(deferred.front()));
+            deferred.pop_front();
+        }
+        if (!connected)
             return false;
 
         session.inUse = true;
@@ -1314,10 +1368,8 @@ private:
             return false;
         }
 
-        (void)ConfigureQos(session);
-        // QoS and Sniff Mode tune the same 0A12:0001 adapter path used by Dolphin.
-        // They are best-effort; basic HID input remains available if unsupported.
-        (void)ConfigureSniffMode(session);
+        // Keep initial pairing identical to the known-good standalone sequence.
+        // QoS/Sniff tuning is deliberately deferred until a basic HID link works.
         SetMessage("Bluetooth connected; authenticating Wii Remote", true);
         if (!Authenticate(session)) {
             SetMessage("Bluetooth link established, but Wii Remote authentication failed");
@@ -1488,7 +1540,11 @@ private:
             if (known)
                 continue;
 
-            if (!ReadRemoteName(candidate))
+            // The standalone discovery program connects directly from the
+            // Inquiry Result address. Prefer the Wii-specific Class of Device
+            // and avoid making a Remote Name request a prerequisite for known
+            // Nintendo remotes. Unknown classes still require the name check.
+            if (!IsKnownWiiRemoteClass(candidate.classOfDevice) && !ReadRemoteName(candidate))
                 continue;
 
             const int slot = FindSlotForAddress(candidate.address);
