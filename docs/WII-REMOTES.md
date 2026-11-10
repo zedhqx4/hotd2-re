@@ -3,11 +3,11 @@
 HOTD2RE supports two separate Wii Remote connection paths.
 
 - **Windows Bluetooth HID (default):** ordinary Windows Bluetooth pairing and DolphinBar Mode 4. This path does not require the passthrough DLL or libusbK.
-- **USB Bluetooth passthrough (optional):** selected explicitly in Options > Wii Remotes. The game loads `wii_bt_passthrough.dll` from the same directory as `hotd2.exe` / `play.exe`. It also requires the matching-architecture `libusb-1.0.dll` in that directory; both are shipped together as optional runtime files. The host DLL owns a compatible USB HCI adapter through libusbK.
+- **USB Bluetooth passthrough (optional):** selected explicitly in Options > Wii Remotes. The game loads `wii_bt_passthrough.dll` from the same directory as `hotd2.exe` / `play.exe`. It also requires the matching-architecture `libusb-1.0.dll` in that directory; both are shipped together as optional runtime files. The host DLL owns the selected USB HCI adapter through libusb. On Windows, the device must use a driver supported by libusb, such as WinUSB or libusbK.
 
 If the DLL is missing, its API version is incompatible, or no claimable USB Bluetooth HCI adapter is available, HOTD2RE falls back to Windows Bluetooth HID and displays the reason in the Wii Remote status page. The game input library itself does not link libusb and does not statically include the USB transport.
 
-Both runtime DLLs must match the game executable architecture: x86 for a 32-bit executable or x64 for a 64-bit executable. With passthrough OFF, neither DLL is loaded and the CSR8510 is not claimed by HOTD2RE.
+Both runtime DLLs must match the game executable architecture: x86 for a 32-bit executable or x64 for a 64-bit executable. With passthrough OFF, neither DLL is loaded and the selected USB adapter is not claimed by HOTD2RE.
 
 ## Adapter selection
 
