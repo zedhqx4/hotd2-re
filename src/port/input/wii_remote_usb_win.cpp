@@ -4,6 +4,14 @@
 #include <new>
 
 #ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <mmsystem.h>
 #include <libusb.h>
 
 #include <algorithm>
@@ -1573,6 +1581,11 @@ private:
     }
 
     void Run() {
+        // The runtime polls HCI events and ACL input with 1 ms synchronous
+        // libusb timeouts. On Windows, the default timer quantum can stretch
+        // those waits (and sleep_for below) to a much larger interval. Request
+        // 1 ms resolution only while this optional passthrough worker is alive.
+        const MMRESULT timerResolution = timeBeginPeriod(1);
         LoadLinkKeys();
         while (!stop_) {
             if (!enabled_) {
@@ -1624,6 +1637,8 @@ private:
         }
 
         CloseAdapter();
+        if (timerResolution == TIMERR_NOERROR)
+            timeEndPeriod(1);
     }
 };
 
