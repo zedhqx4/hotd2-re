@@ -6,7 +6,7 @@ The passthrough backend is being developed independently from the existing Windo
 
 On Windows, install the libusbK driver for the dedicated CSR8510 adapter with Zadig. Do not replace the driver for the Intel Bluetooth device used by Windows.
 
-Configure CMake with -DHOTD2_WII_USB_PASSTHROUGH=ON, build the wii_bluetooth_probe target, then run:
+Configure CMake with -DHOTD2_WII_USB_PASSTHROUGH=ON, then build the probe target (for example: cmake --build build --config Release --target wii_bluetooth_probe). Run it from the output directory:
 
     .\wii_bluetooth_probe.exe
 
