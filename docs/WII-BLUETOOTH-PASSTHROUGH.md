@@ -71,7 +71,7 @@ The runtime backend and probes are included when configuring Windows builds with
 
 ```powershell
 cmake -S . -B build -A Win32 -DHOTD2_WII_USB_PASSTHROUGH=ON
-cmake --build build --config Release --target hotd2 hotd2re wii_remote_test wii_bluetooth_probe wii_hci_probe
+cmake --build build --config Release --target hotd2 play wii_remote_test wii_bluetooth_probe wii_hci_probe
 ```
 
 For the supported x64 port build, add `-DHOTD2_ALLOW_64BIT=ON` and use `-A x64`.
