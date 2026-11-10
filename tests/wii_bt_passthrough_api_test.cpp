@@ -1,7 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
-#include "wii_remote_passthrough_api.h"
+#include "wii_bt_api.h"
 #include <array>
 #include <cstdio>
 #include <filesystem>
