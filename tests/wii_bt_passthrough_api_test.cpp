@@ -30,26 +30,29 @@ int main() {
         return 1;
     }
     const auto version = Resolve<uint32_t (WII_BT_CALL *)(void)>(dll, "WiiBt_GetApiVersion");
+    const auto enumerate = Resolve<int32_t (WII_BT_CALL *)(WiiBtAdapterInfo*, int32_t)>(dll, "WiiBt_EnumerateAdapters");
     const auto hasAdapter = Resolve<int (WII_BT_CALL *)(int32_t, int32_t)>(dll, "WiiBt_HasCompatibleAdapter");
-    const auto create = Resolve<void* (WII_BT_CALL *)(int32_t, int32_t)>(dll, "WiiBt_Create");
+    const auto create = Resolve<void* (WII_BT_CALL *)(int32_t, int32_t, int32_t, const char*)>(dll, "WiiBt_Create");
     const auto destroy = Resolve<void (WII_BT_CALL *)(void*)>(dll, "WiiBt_Destroy");
     const auto enable = Resolve<int (WII_BT_CALL *)(void*, int, int)>(dll, "WiiBt_Enable");
     const auto scan = Resolve<int (WII_BT_CALL *)(void*)>(dll, "WiiBt_Scan");
     const auto disconnect = Resolve<int (WII_BT_CALL *)(void*, int)>(dll, "WiiBt_Disconnect");
     const auto swap = Resolve<int (WII_BT_CALL *)(void*)>(dll, "WiiBt_SwapPlayers");
     const auto poll = Resolve<int (WII_BT_CALL *)(void*, WiiBtSnapshot*)>(dll, "WiiBt_Poll");
-    if (!version || !hasAdapter || !create || !destroy || !enable || !scan ||
+    if (!version || !enumerate || !hasAdapter || !create || !destroy || !enable || !scan ||
         !disconnect || !swap || !poll || version() != WII_BT_API_VERSION) {
         std::fprintf(stderr, "FAIL: missing export or incompatible API version\n");
         FreeLibrary(dll);
         return 1;
     }
-    if (hasAdapter(-1, 1) != 0 || create(-1, 1) != nullptr) {
+    if (enumerate(nullptr, 0) < 0 || hasAdapter(-1, 1) != 0 ||
+        create(-1, 1, WII_BT_PAIRING_SYNC, nullptr) != nullptr ||
+        create(-1, -1, 99, nullptr) != nullptr) {
         std::fprintf(stderr, "FAIL: incomplete VID/PID pair was not rejected\n");
         FreeLibrary(dll);
         return 1;
     }
-    void* instance = create(-1, -1);
+    void* instance = create(-1, -1, WII_BT_PAIRING_SYNC, nullptr);
     if (!instance || !enable(instance, 0, 0)) {
         std::fprintf(stderr, "FAIL: backend lifecycle initialization\n");
         if (instance) destroy(instance);
