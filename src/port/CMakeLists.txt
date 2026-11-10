@@ -333,3 +333,20 @@ if(WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 8)
     endif()
   endforeach()
 endif()
+
+
+# The shared host DLL remains optional at runtime, but make it available beside
+# each game executable so the existing dynamic loader and package logic find it.
+if(WIN32 AND HOTD2_WII_USB_PASSTHROUGH)
+  foreach(runtime_app IN ITEMS play hotd2)
+    if(TARGET ${runtime_app})
+      add_dependencies(${runtime_app} wii_bt_passthrough)
+      add_custom_command(TARGET ${runtime_app} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "$<TARGET_FILE:wii_bt_passthrough>" "$<TARGET_FILE_DIR:${runtime_app}>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "$<TARGET_FILE:usb-1.0>" "$<TARGET_FILE_DIR:${runtime_app}>"
+        VERBATIM)
+    endif()
+  endforeach()
+endif()
