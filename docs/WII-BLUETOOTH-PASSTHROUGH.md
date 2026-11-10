@@ -1,50 +1,92 @@
-# USB Bluetooth passthrough (development)
+# USB Bluetooth passthrough for native Wii Remotes
 
-The passthrough backend is being developed independently from the existing Windows HID backend. The first hardware milestone validates USB access; the next validates basic HCI command/event exchange.
+HOTD2RE now has a direct USB HCI host backend for Wii Remotes. It feeds the existing
+`input::wii::Remote` / `Snapshot` input path; it does not emulate the Wii's IOS Bluetooth
+device and does not copy Dolphin's implementation.
 
-## CSR8510 USB interface probe
+The backend is selected automatically when HOTD2RE can open and claim a standard USB
+Bluetooth HCI interface through libusb. If no claimable USB HCI adapter is found, HOTD2RE
+keeps using its existing Windows Bluetooth/HID backend (including DolphinBar Mode 4).
 
-On Windows, install the libusbK driver for the dedicated CSR8510 adapter with Zadig. Do not replace the driver for the Intel Bluetooth device used by Windows.
+## Adapter setup on Windows
 
-Configure CMake with `-DHOTD2_WII_USB_PASSTHROUGH=ON`, then build the USB probe:
+Use a dedicated USB Bluetooth adapter for passthrough. For the tested CSR8510 A10:
 
-    cmake --build build --config Release --target wii_bluetooth_probe
+- USB VID:PID: `0A12:0001`
+- Install the `libusbK` driver on that adapter with Zadig.
+- Do **not** replace the driver for the Intel Bluetooth adapter used by Windows.
+- Close other applications that are controlling the same CSR8510 while HOTD2RE is using it.
 
-Run it from the output directory:
+The CSR8510 is then exclusively owned by HOTD2RE while Wii Remote support is enabled.
+Windows Bluetooth will no longer use that particular adapter; the separate Intel radio
+remains available to Windows.
 
-    .\wii_bluetooth_probe.exe
+## Connect
 
-The default target is `USB\VID_0A12&PID_0001`. A different adapter can be inspected with:
+1. Enable Wii Remote support in **Options > Wii Remotes** (or **Pause > Wii Remotes**).
+2. Select **Connect remotes**.
+3. Press the remote's red **SYNC** button during the search.
 
-    .\wii_bluetooth_probe.exe 0xVID 0xPID
+The USB backend performs Bluetooth Classic inquiry, remote-name validation, baseband
+connection, legacy SYNC authentication, link encryption, HID L2CAP setup and HIDP report
+configuration. It currently supports up to two remotes. For this direct USB backend, use
+the red SYNC button; the 1+2 guest-pairing path remains available through the Windows HID
+backend.
 
-The probe enumerates matching devices, prints USB interface classes and endpoint layouts, opens the adapter, and attempts to claim/release a standard Bluetooth HCI interface. It does not send HCI commands, pair a remote, change Windows Bluetooth settings, or keep the adapter claimed after exit.
+## Transport and timing
 
-## HCI command/event probe
+The host backend uses:
 
-Build the separate HCI probe:
+- HCI commands on the USB control pipe.
+- HCI events on the USB interrupt IN endpoint.
+- ACL data on the USB bulk IN/OUT endpoints.
+- HID Control (PSM `0x0011`) and HID Interrupt (PSM `0x0013`) L2CAP channels.
+- Continuous HID report `0x33` for core buttons, accelerometer and extended IR.
+- The existing HOTD2RE report decoder and four-point aim calibration.
 
-    cmake --build build --config Release --target wii_hci_probe
+For compatibility with the tested CSR8510 family, the backend requests HCI QoS
+`GUARANTEED` using the same parameters as Dolphin. It also requests the Wii's Bluetooth
+link policy and 5 ms Sniff interval (200 Hz report cadence). If a controller rejects
+either timing request, those requests are best-effort and basic HID input can still work.
 
-Run:
+IR initialization writes the Wii Remote's sensor configuration registers before selecting
+report `0x33`. A powered infrared sensor bar is required for pointing.
 
-    .\wii_hci_probe.exe
+## Pairing keys
 
-The initial probe sends these standard HCI commands and waits for their matching events:
+When the remote sends `HCI Link Key Notification`, HOTD2RE saves the key locally and
+restores known keys after HCI Reset. The file is:
 
-- `HCI Reset` (`0x0C03`)
-- `Read Local Version Information` (`0x1001`)
-- `Read BD_ADDR` (`0x1009`)
+```text
+%LOCALAPPDATA%\HOTD2RE\wii_link_keys.txt
+```
 
-USB Bluetooth transport details matter: HCI commands are sent over the default USB control pipe; HCI events arrive on the interrupt IN endpoint; ACL data uses the bulk IN/OUT endpoints. The probe deliberately does not send ACL data, scan, pair, or connect to a Wii Remote. It releases the claimed interface before exit.
+It contains Bluetooth addresses and link keys in hexadecimal. Treat it as a credential:
+do not publish it or include it in bug reports. It is separate from `hotd2re_wii.ini`,
+which stores player bindings and aim calibration.
 
-A successful result validates basic controller command/event exchange only. It does not yet mean Wii Remote discovery, pairing, HIDP, or input is implemented.
+## Build and diagnostics
 
-## Architecture constraints
+The runtime backend and probes are included when configuring Windows builds with:
 
-- Keep the existing Windows HID backend intact and selectable.
-- Use the USB adapter exclusively while passthrough is active; do not share it with the Windows Bluetooth stack.
-- Keep the Intel Bluetooth radio available to Windows.
-- Normalize remote reports into the existing input::wii::Remote / Snapshot path.
-- Do not port Dolphin's IOS emulation. Implement only the host-side Bluetooth behavior required by Wii Remotes.
-- Treat Dolphin's adapter and controller compatibility as the target, not a CSR-only hard-coded implementation.
+```powershell
+cmake -S . -B build -A Win32 -DHOTD2_WII_USB_PASSTHROUGH=ON
+cmake --build build --config Release --target hotd2 hotd2re wii_remote_test wii_bluetooth_probe wii_hci_probe
+```
+
+For the supported x64 port build, add `-DHOTD2_ALLOW_64BIT=ON` and use `-A x64`.
+The `wii_bluetooth_probe` and `wii_hci_probe` utilities only inspect the adapter and HCI
+command/event transport; they do not pair a remote.
+
+## Current scope and validation
+
+The current USB backend targets standard USB Bluetooth HCI adapters and Nintendo
+RVL-CNT-01 / RVL-CNT-01-TR remotes. It supports core buttons, accelerometer and IR
+pointing for two players. MotionPlus, Nunchuk/Classic Controller extensions, speaker
+audio, Balance Board and vendor-specific HID extensions are not implemented in this
+backend. The existing Windows HID backend remains available as the fallback.
+
+The standalone USB diagnostic has already completed real hardware authentication,
+encryption, L2CAP setup and received core-button reports from a CSR8510 A10. The new
+HOTD2RE runtime backend has a separate compile/test gate; it still requires its own
+physical in-game validation before being called hardware-verified.
