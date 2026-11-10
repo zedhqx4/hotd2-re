@@ -79,6 +79,7 @@ jobs:
             build/**/play.exe
             build/**/wii_remote_test.exe
             build/**/wii_bt_passthrough.dll
+            build/**/libusb-1.0.dll
             build/**/wii_bt_passthrough_api_test.exe
             build/**/wii_*probe.exe
           if-no-files-found: error
@@ -119,6 +120,7 @@ jobs:
           name: hotd2re-wii-passthrough-windows-x86
           path: |
             build-x86/**/wii_bt_passthrough.dll
+            build-x86/**/libusb-1.0.dll
             build-x86/**/wii_bt_passthrough_api_test.exe
           if-no-files-found: error
           retention-days: 14
