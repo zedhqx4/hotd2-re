@@ -17,7 +17,7 @@ if(WIN32)
   option(HOTD2_WII_USB_PASSTHROUGH "Build the optional USB Bluetooth passthrough DLL and diagnostics" ON)
   if(HOTD2_WII_USB_PASSTHROUGH)
     include(FetchContent)
-    set(LIBUSB_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(LIBUSB_BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
     set(LIBUSB_BUILD_TESTING OFF CACHE BOOL "" FORCE)
     set(LIBUSB_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(LIBUSB_INSTALL_TARGETS OFF CACHE BOOL "" FORCE)
@@ -38,6 +38,12 @@ if(WIN32)
       WIN32_LEAN_AND_MEAN NOMINMAX HOTD2_WII_USB_DLL_BUILD)
     target_link_libraries(wii_bt_passthrough PRIVATE usb-1.0)
     set_target_properties(wii_bt_passthrough PROPERTIES OUTPUT_NAME "wii_bt_passthrough")
+    # Keep the LGPL libusb runtime beside the optional host DLL. It is not loaded
+    # unless the user selects USB passthrough; package tooling admits this pair only.
+    add_custom_command(TARGET wii_bt_passthrough POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:usb-1.0>" "$<TARGET_FILE_DIR:wii_bt_passthrough>"
+      VERBATIM)
 
     add_executable(wii_bt_passthrough_api_test ${PROJECT_SOURCE_DIR}/tests/wii_bt_passthrough_api_test.cpp)
     target_include_directories(wii_bt_passthrough_api_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/input)
