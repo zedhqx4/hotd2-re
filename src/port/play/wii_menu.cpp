@@ -115,7 +115,7 @@ void WiiMenu::Sprites(const game::ExeImage& exe,const input::WiiRemotes& remotes
         return;
     }
     if(player_<0){
-        for(int i=0;i<7;++i){
+        for(int i=0;i<8;++i){
             Text(exe,32,RowY(i),mainLabels[i],out,cursor_==i);
             if(i==0 || i==1 || i==3)Text(exe,452,RowY(i),(i==0?remotes.settings.enabled:(i==1?remotes.settings.usbPassthrough:remotes.settings.continuous))?"ON":"OFF",out,cursor_==i);
         }
@@ -169,7 +169,7 @@ void WiiMenu::ModernHud(const input::WiiRemotes& remotes, game::WorldHud& hud) c
     device_ui::Begin(hud, 10, player_ < 0 ? "WII REMOTES" : "WII REMOTE / PLAYER " + std::to_string(player_ + 1),
                      player_ < 0 ? "NATIVE BLUETOOTH / DOLPHINBAR" : "CALIBRATION / BUTTONS / AIM");
     hud.nightShiftRow = cursor_;
-    const int rows = player_ < 0 ? 7 : 9;
+    const int rows = player_ < 0 ? 8 : 9;
     for (int row = 0; row < rows; ++row) {
         const float y = RowY(row) + 10;
         std::string value;
