@@ -29,6 +29,8 @@ bool Settings::Load(const std::string& file) {
         if(key=="enabled" && v>>number)loaded.enabled=number==1;
         else if(key=="continuous" && v>>number)loaded.continuous=number==1;
         else if(key=="usb_passthrough" && v>>number)loaded.usbPassthrough=number==1;
+        else if(key=="usb_vid" && v>>number && (number==-1 || (number>0 && number<=0xffff)))loaded.usbVid=number;
+        else if(key=="usb_pid" && v>>number && (number==-1 || (number>0 && number<=0xffff)))loaded.usbPid=number;
         for(int p=0;p<2;++p) {
             auto prefix="p"+std::to_string(p+1)+".";auto& profile=loaded.player[p];
             if(key==prefix+"smoothing" && v>>number)profile.smoothing=std::clamp(number,0,2);
@@ -46,11 +48,14 @@ bool Settings::Load(const std::string& file) {
             }
         }
     }
+    // VID and PID are a pair. A partial/invalid selection safely returns to Automatic.
+    if ((loaded.usbVid == -1) != (loaded.usbPid == -1)) loaded.usbVid=loaded.usbPid=-1;
     *this=loaded;return true;
 }
 bool Settings::Save(const std::string& file) const {
     std::ofstream f(file,std::ios::trunc);if(!f)return false;
-    f<<"enabled="<<enabled<<"\ncontinuous="<<continuous<<"\nusb_passthrough="<<usbPassthrough<<'\n'<<std::setprecision(12);
+    f<<"enabled="<<enabled<<"\ncontinuous="<<continuous<<"\nusb_passthrough="<<usbPassthrough
+     <<"\nusb_vid="<<usbVid<<"\nusb_pid="<<usbPid<<'\n'<<std::setprecision(12);
     for(int p=0;p<2;++p) {
         auto prefix="p"+std::to_string(p+1)+".";auto& profile=player[p];
         f<<prefix<<"smoothing="<<profile.smoothing<<'\n'<<prefix<<"buttons=";
@@ -105,7 +110,7 @@ WiiRemotes::WiiRemotes(GunSource* f,std::unique_ptr<wii::Backend> b):fallback_(f
 void WiiRemotes::Configure(){
     if(backendPassthrough_!=settings.usbPassthrough){
         if(backend_)backend_->Enable(false,false);
-        backend_=settings.usbPassthrough?wii::CreatePassthroughBackend():wii::CreateBackend();
+        backend_=settings.usbPassthrough?wii::CreatePassthroughBackend(settings.usbVid,settings.usbPid):wii::CreateBackend();
         backendPassthrough_=settings.usbPassthrough;
         snapshot_={};players_={};hadTracking_={};
     }
@@ -152,6 +157,6 @@ void WiiRemotes::BeginFrame(){
 
 #ifndef _WIN32
 namespace input::wii {
-std::unique_ptr<Backend> CreatePassthroughBackend(){return CreateBackend();}
+std::unique_ptr<Backend> CreatePassthroughBackend(int,int){return CreateBackend();}
 }
 #endif
