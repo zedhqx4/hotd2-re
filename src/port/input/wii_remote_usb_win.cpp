@@ -51,7 +51,6 @@ constexpr uint8_t kEventNumberCompletedPackets = 0x13;
 constexpr uint8_t kEventPinCodeRequest = 0x16;
 constexpr uint8_t kEventLinkKeyRequest = 0x17;
 constexpr uint8_t kEventLinkKeyNotification = 0x18;
-constexpr uint8_t kEventQosSetupComplete = 0x0D;
 
 constexpr uint16_t kHciReset = 0x0C03;
 constexpr uint16_t kHciReadBdAddr = 0x1009;
@@ -67,9 +66,6 @@ constexpr uint16_t kHciLinkKeyRequestNegativeReply = 0x040C;
 constexpr uint16_t kHciWriteStoredLinkKey = 0x0C11;
 constexpr uint16_t kHciDeleteStoredLinkKey = 0x0C12;
 constexpr uint16_t kHciPinCodeRequestReply = 0x040D;
-constexpr uint16_t kHciQosSetup = 0x0807;
-constexpr uint16_t kHciSniffMode = 0x0803;
-constexpr uint16_t kHciWriteLinkPolicySettings = 0x080D;
 
 constexpr uint16_t kL2capSignalingCid = 0x0001;
 constexpr uint16_t kL2capHidControlPsm = 0x0011;
@@ -127,13 +123,6 @@ uint16_t ReadLe16(const uint8_t* p) {
 void AppendLe16(std::vector<uint8_t>& data, uint16_t value) {
     data.push_back(static_cast<uint8_t>(value));
     data.push_back(static_cast<uint8_t>(value >> 8));
-}
-
-void AppendLe32(std::vector<uint8_t>& data, uint32_t value) {
-    data.push_back(static_cast<uint8_t>(value));
-    data.push_back(static_cast<uint8_t>(value >> 8));
-    data.push_back(static_cast<uint8_t>(value >> 16));
-    data.push_back(static_cast<uint8_t>(value >> 24));
 }
 
 bool SameAddress(const std::array<uint8_t, 6>& a, const uint8_t* b) {
@@ -530,8 +519,7 @@ private:
             return true;
         }
         if (event[0] == 0x12 || event[0] == 0x14 ||
-            event[0] == kEventNumberCompletedPackets ||
-            event[0] == kEventQosSetupComplete)
+            event[0] == kEventNumberCompletedPackets)
             return true;
         return false;
     }
@@ -875,12 +863,10 @@ private:
             if (event[0] == kEventConnectionComplete && event.size() >= 13 &&
                 SameAddress(candidate.address, event.data() + 5)) {
                 if (event[2] != 0) {
+                    char status[3]{};
+                    std::snprintf(status, sizeof(status), "%02X", event[2]);
                     SetMessage("HCI Connection Complete failed for " + candidate.name +
-                               " (status 0x" + [&] {
-                                   char value[3]{};
-                                   std::snprintf(value, sizeof(value), "%02X", event[2]);
-                                   return std::string(value);
-                               }() + ")");
+                               " (status 0x" + status + ")");
                     return false;
                 }
                 connected = true;
@@ -911,46 +897,6 @@ private:
         session.lastReport = Clock::now();
         session.lastStatus = session.lastReport;
         return true;
-    }
-
-    bool ConfigureQos(const Session& session) {
-        std::vector<uint8_t> parameters;
-        parameters.reserve(20);
-        AppendLe16(parameters, session.handle);
-        parameters.push_back(0); // Reserved flags.
-        parameters.push_back(0x02); // HCI_SERVICE_TYPE_GUARANTEED.
-        AppendLe32(parameters, 0xFFFFFFFF);
-        AppendLe32(parameters, 0xFFFFFFFF);
-        AppendLe32(parameters, 10000);
-        AppendLe32(parameters, 0xFFFFFFFF);
-        // QoS is a compatibility/performance request. A remote/controller which
-        // rejects it may still carry input, so failure is not a connection failure.
-        return SendCommand(kHciQosSetup, parameters.data(),
-                           static_cast<uint8_t>(parameters.size()));
-    }
-
-    bool ConfigureSniffMode(Session& session) {
-        // Match the Wii's real Bluetooth link policy. A 5 ms Sniff interval
-        // yields the Wii Remote's 200 Hz input report cadence.
-        std::array<uint8_t, 4> policy{
-            static_cast<uint8_t>(session.handle),
-            static_cast<uint8_t>(session.handle >> 8),
-            0x05, 0x00 // Enable role switch (0x01) and Sniff mode (0x04).
-        };
-        if (!SendCommand(kHciWriteLinkPolicySettings, policy.data(),
-                         static_cast<uint8_t>(policy.size())))
-            return false;
-
-        std::array<uint8_t, 10> sniff{
-            static_cast<uint8_t>(session.handle),
-            static_cast<uint8_t>(session.handle >> 8),
-            0x08, 0x00, // Maximum interval: 8 * 0.625 ms = 5 ms.
-            0x08, 0x00, // Minimum interval: 8 * 0.625 ms = 5 ms.
-            0x01, 0x00, // Sniff attempts.
-            0x00, 0x00  // Sniff timeout.
-        };
-        return SendCommand(kHciSniffMode, sniff.data(),
-                           static_cast<uint8_t>(sniff.size()));
     }
 
     bool Authenticate(Session& session) {
@@ -1485,8 +1431,6 @@ private:
                     SetMessage("Wii Remote disconnected; player slot reserved");
                 }
             }
-        } else if (event[0] == kEventQosSetupComplete && event.size() >= 3) {
-            // Dolphin requests GUARANTEED QoS for the same CSR8510 0A12:0001 family.
         }
     }
 
