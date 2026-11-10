@@ -8,7 +8,12 @@
 #include <string>
 template <typename T>
 static T Resolve(HMODULE module, const char* name) {
-    return reinterpret_cast<T>(GetProcAddress(module, name));
+    FARPROC address = GetProcAddress(module, name);
+    if (!address) {
+        const std::string decorated = std::string("_") + name;
+        address = GetProcAddress(module, decorated.c_str());
+    }
+    return reinterpret_cast<T>(address);
 }
 int main() {
     std::array<wchar_t, 32768> path{};
