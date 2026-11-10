@@ -30,11 +30,16 @@ int main() {
         return 1;
     }
     const auto version = Resolve<uint32_t (WII_BT_CALL *)(void)>(dll, "WiiBt_GetApiVersion");
+    const auto hasAdapter = Resolve<int (WII_BT_CALL *)(void)>(dll, "WiiBt_HasCompatibleAdapter");
     const auto create = Resolve<void* (WII_BT_CALL *)(void)>(dll, "WiiBt_Create");
     const auto destroy = Resolve<void (WII_BT_CALL *)(void*)>(dll, "WiiBt_Destroy");
     const auto enable = Resolve<int (WII_BT_CALL *)(void*, int, int)>(dll, "WiiBt_Enable");
+    const auto scan = Resolve<int (WII_BT_CALL *)(void*)>(dll, "WiiBt_Scan");
+    const auto disconnect = Resolve<int (WII_BT_CALL *)(void*, int)>(dll, "WiiBt_Disconnect");
+    const auto swap = Resolve<int (WII_BT_CALL *)(void*)>(dll, "WiiBt_SwapPlayers");
     const auto poll = Resolve<int (WII_BT_CALL *)(void*, WiiBtSnapshot*)>(dll, "WiiBt_Poll");
-    if (!version || !create || !destroy || !enable || !poll || version() != WII_BT_API_VERSION) {
+    if (!version || !hasAdapter || !create || !destroy || !enable || !scan ||
+        !disconnect || !swap || !poll || version() != WII_BT_API_VERSION) {
         std::fprintf(stderr, "FAIL: missing export or incompatible API version\n");
         FreeLibrary(dll);
         return 1;
