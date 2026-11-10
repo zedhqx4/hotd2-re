@@ -47,6 +47,34 @@ bool Inspect(const libusb_interface_descriptor& a) {
     if(bluetoothClass&&layout)std::puts("      candidate: standard USB Bluetooth HCI interface");
     return bluetoothClass&&layout;
 }
+bool HasStandardHciLayout(libusb_device* device) {
+    libusb_config_descriptor* config = nullptr;
+    if (libusb_get_active_config_descriptor(device, &config) != LIBUSB_SUCCESS || !config)
+        return false;
+    bool found = false;
+    for (uint8_t i = 0; i < config->bNumInterfaces && !found; ++i) {
+        const auto& group = config->interface[i];
+        for (int a = 0; a < group.num_altsetting && !found; ++a) {
+            const auto& alt = group.altsetting[a];
+            if (alt.bInterfaceClass != 0xE0 ||
+                alt.bInterfaceSubClass != 0x01 ||
+                alt.bInterfaceProtocol != 0x01)
+                continue;
+            bool interruptIn = false, bulkIn = false, bulkOut = false;
+            for (uint8_t e = 0; e < alt.bNumEndpoints; ++e) {
+                const auto& ep = alt.endpoint[e];
+                const auto type = ep.bmAttributes & LIBUSB_TRANSFER_TYPE_MASK;
+                const bool in = (ep.bEndpointAddress & LIBUSB_ENDPOINT_DIR_MASK) == LIBUSB_ENDPOINT_IN;
+                interruptIn |= type == LIBUSB_TRANSFER_TYPE_INTERRUPT && in;
+                bulkIn |= type == LIBUSB_TRANSFER_TYPE_BULK && in;
+                bulkOut |= type == LIBUSB_TRANSFER_TYPE_BULK && !in;
+            }
+            found = interruptIn && bulkIn && bulkOut;
+        }
+    }
+    libusb_free_config_descriptor(config);
+    return found;
+}
 bool Probe(libusb_device* d,bool filter,uint16_t vid,uint16_t pid) {
     libusb_device_descriptor desc{};
     int rc=libusb_get_device_descriptor(d,&desc);
@@ -116,6 +144,7 @@ int main(int argc,char** argv) {
         libusb_device_descriptor d{};
         if(libusb_get_device_descriptor(list[i],&d)!=LIBUSB_SUCCESS)continue;
         if(filter&&(d.idVendor!=vid||d.idProduct!=pid))continue;
+        if(!filter&&!HasStandardHciLayout(list[i]))continue;
         found=true;usable=Probe(list[i],filter,vid,pid)||usable;
     }
     libusb_free_device_list(list,1);libusb_exit(ctx);
