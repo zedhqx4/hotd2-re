@@ -1482,10 +1482,9 @@ private:
         LoadLinkKeys();
         while (!stop_) {
             if (!enabled_) {
-                if (handle_ || context_) {
-                    HandleCommands(); // Send HCI Disconnect for live remotes before releasing USB.
+                HandleCommands(); // Release reserved slots and disconnect live remotes.
+                if (handle_ || context_)
                     CloseAdapter();
-                }
                 std::unique_lock lock(commandMutex_);
                 cv_.wait_for(lock, std::chrono::milliseconds(150),
                              [&] { return stop_ || enabled_.load(); });
