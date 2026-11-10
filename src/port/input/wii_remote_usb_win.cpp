@@ -26,6 +26,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <set>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -316,6 +317,7 @@ private:
     std::array<bool, 2> slotReserved_{};
     std::deque<std::vector<uint8_t>> pendingEvents_;
     std::map<std::array<uint8_t, 6>, std::array<uint8_t, 16>> linkKeys_;
+    std::set<uint16_t> completedDisconnects_;
     Clock::time_point scanDeadline_{};
     bool initialized_ = false;
 
@@ -524,6 +526,8 @@ private:
         }
         if (event[0] == kEventDisconnectionComplete && event.size() >= 6) {
             const uint16_t h = ReadLe16(event.data() + 3) & 0x0FFF;
+            if (event[2] == 0)
+                completedDisconnects_.insert(h);
             for (int i = 0; i < 2; ++i) {
                 if (sessions_[i].inUse && sessions_[i].handle == h) {
                     sessions_[i] = {};
@@ -1415,15 +1419,36 @@ private:
     bool DisconnectSession(Session& session) {
         if (!handle_ || !session.inUse)
             return true;
+        const uint16_t connectionHandle = session.handle;
         if (session.ready)
             (void)SendHidpOutput(session, {0x11, 0x00}); // Turn off this player's LED.
         const std::array<uint8_t, 3> parameters{
-            static_cast<uint8_t>(session.handle),
-            static_cast<uint8_t>(session.handle >> 8),
+            static_cast<uint8_t>(connectionHandle),
+            static_cast<uint8_t>(connectionHandle >> 8),
             0x13
         };
-        return SendCommand(kHciDisconnect, parameters.data(),
-                           static_cast<uint8_t>(parameters.size()), nullptr, 1000);
+        if (!SendCommand(kHciDisconnect, parameters.data(),
+                         static_cast<uint8_t>(parameters.size()), nullptr, 1000))
+            return false;
+
+        // Command Status only confirms that the controller accepted the request.
+        // Keep the USB HCI interface alive until Disconnection Complete arrives.
+        const auto deadline = Clock::now() + std::chrono::milliseconds(1500);
+        while (Clock::now() < deadline) {
+            const auto completed = completedDisconnects_.find(connectionHandle);
+            if (completed != completedDisconnects_.end()) {
+                completedDisconnects_.erase(completed);
+                return true;
+            }
+            std::vector<uint8_t> event;
+            if (!ReadEvent(event, 5)) {
+                PumpAcl(1);
+                continue;
+            }
+            if (!IsAsynchronousEvent(event))
+                pendingEvents_.push_back(std::move(event));
+        }
+        return false;
     }
 
     void ProcessRuntimeEvent(const std::vector<uint8_t>& event) {
