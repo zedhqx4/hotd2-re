@@ -763,10 +763,13 @@ private:
     bool ReadRemoteName(Candidate& candidate) {
         std::array<uint8_t, 10> parameters{};
         std::copy(candidate.address.begin(), candidate.address.end(), parameters.begin());
-        parameters[6] = candidate.pageScanRepetition;
+        // Use the same conservative page-scan parameters as the known-good
+        // direct-connect probe; do not let Inquiry Result metadata alter this
+        // preliminary name request either.
+        parameters[6] = 0x01;
         parameters[7] = 0;
-        parameters[8] = static_cast<uint8_t>(candidate.clockOffset);
-        parameters[9] = static_cast<uint8_t>(candidate.clockOffset >> 8);
+        parameters[8] = 0;
+        parameters[9] = 0;
         if (!SendCommand(kHciReadRemoteName, parameters.data(),
                          static_cast<uint8_t>(parameters.size()))) {
             SetMessage("Bluetooth device found, but Read Remote Name was rejected");
@@ -836,9 +839,12 @@ private:
         parameters[11] = 0x00;
         parameters[12] = 0x01; // Allow role switch.
 
+        SetMessage("Sending HCI Create Connection to " + candidate.name, true);
         if (!SendCommand(kHciCreateConnection, parameters.data(),
-                         static_cast<uint8_t>(parameters.size())))
+                         static_cast<uint8_t>(parameters.size()))) {
+            SetMessage("HCI Create Connection was rejected for " + candidate.name);
             return false;
+        }
 
         const auto deadline = Clock::now() + std::chrono::seconds(20);
         std::deque<std::vector<uint8_t>> deferred;
@@ -859,15 +865,24 @@ private:
                 std::copy(candidate.address.begin(), candidate.address.end(), accept.begin());
                 accept[6] = 0x00; // Become master.
                 if (!SendCommand(kHciAcceptConnectionRequest, accept.data(),
-                                 static_cast<uint8_t>(accept.size())))
+                                 static_cast<uint8_t>(accept.size()))) {
+                    SetMessage("HCI Accept Connection Request failed for " + candidate.name);
                     return false;
+                }
                 continue;
             }
 
             if (event[0] == kEventConnectionComplete && event.size() >= 13 &&
                 SameAddress(candidate.address, event.data() + 5)) {
-                if (event[2] != 0)
+                if (event[2] != 0) {
+                    SetMessage("HCI Connection Complete failed for " + candidate.name +
+                               " (status 0x" + [&] {
+                                   char value[3]{};
+                                   std::snprintf(value, sizeof(value), "%02X", event[2]);
+                                   return std::string(value);
+                               }() + ")");
                     return false;
+                }
                 connected = true;
                 break;
             }
@@ -879,8 +894,11 @@ private:
             pendingEvents_.push_back(std::move(deferred.front()));
             deferred.pop_front();
         }
-        if (!connected)
+        if (!connected) {
+            SetMessage("Timed out waiting for HCI Connection Complete from " + candidate.name);
             return false;
+        }
+        SetMessage("Bluetooth baseband link established with " + candidate.name, true);
 
         session.inUse = true;
         session.ready = false;
@@ -1361,8 +1379,6 @@ private:
 
         SetMessage("Connecting to " + candidate.name, true);
         if (!ConnectBaseband(candidate, session)) {
-            SetMessage("Found " + candidate.name +
-                       ", but the Bluetooth baseband connection failed");
             session = {};
             ClearVisible(player);
             return false;
