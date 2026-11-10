@@ -93,7 +93,18 @@ public:
             const auto keyPath = std::filesystem::path(
                 std::wstring(localAppData.data(), appDataLength)) /
                 L"HOTD2RE" / L"wii_link_keys.txt";
-            keyFileUtf8 = keyPath.u8string();
+            const std::wstring nativePath = keyPath.native();
+            const int utf8Length = WideCharToMultiByte(
+                CP_UTF8, 0, nativePath.c_str(), -1, nullptr, 0, nullptr, nullptr);
+            if (utf8Length > 1) {
+                std::vector<char> utf8Buffer(static_cast<size_t>(utf8Length));
+                const int converted = WideCharToMultiByte(
+                    CP_UTF8, 0, nativePath.c_str(), -1,
+                    utf8Buffer.data(), utf8Length, nullptr, nullptr);
+                if (converted == utf8Length)
+                    keyFileUtf8.assign(utf8Buffer.data(),
+                                       static_cast<size_t>(utf8Length - 1));
+            }
         }
         instance_ = create_(usbVid, usbPid, WII_BT_PAIRING_SYNC,
                             keyFileUtf8.empty() ? nullptr : keyFileUtf8.c_str());
