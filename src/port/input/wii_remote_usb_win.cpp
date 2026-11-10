@@ -1584,10 +1584,16 @@ private:
         // The runtime polls HCI events and ACL input with 1 ms synchronous
         // libusb timeouts. On Windows, the default timer quantum can stretch
         // those waits (and sleep_for below) to a much larger interval. Request
-        // 1 ms resolution only while this optional passthrough worker is alive.
-        const MMRESULT timerResolution = timeBeginPeriod(1);
+        // 1 ms resolution only while USB passthrough is actively enabled.
+        bool timerResolutionActive = false;
         LoadLinkKeys();
         while (!stop_) {
+            if (enabled_ && !timerResolutionActive)
+                timerResolutionActive = timeBeginPeriod(1) == TIMERR_NOERROR;
+            else if (!enabled_ && timerResolutionActive) {
+                timeEndPeriod(1);
+                timerResolutionActive = false;
+            }
             if (!enabled_) {
                 HandleCommands(); // Release reserved slots and disconnect live remotes.
                 if (handle_ || context_)
@@ -1637,7 +1643,7 @@ private:
         }
 
         CloseAdapter();
-        if (timerResolution == TIMERR_NOERROR)
+        if (timerResolutionActive)
             timeEndPeriod(1);
     }
 };
