@@ -380,37 +380,36 @@ private:
                 (descriptor.idVendor != selectedVid_ || descriptor.idProduct != selectedPid_))
                 continue;
 
-                HciInterface candidate{};
-                if (!FindHciInterface(devices[i], candidate))
-                    continue;
+            HciInterface candidate{};
+            if (!FindHciInterface(devices[i], candidate))
+                continue;
 
-                libusb_device_handle* candidateHandle = nullptr;
-                int rc = libusb_open(devices[i], &candidateHandle);
-                if (rc != LIBUSB_SUCCESS)
-                    continue;
+            libusb_device_handle* candidateHandle = nullptr;
+            int rc = libusb_open(devices[i], &candidateHandle);
+            if (rc != LIBUSB_SUCCESS)
+                continue;
 
-                const int detach = libusb_set_auto_detach_kernel_driver(candidateHandle, 1);
-                if (detach != LIBUSB_SUCCESS && detach != LIBUSB_ERROR_NOT_SUPPORTED) {
-                    libusb_close(candidateHandle);
-                    continue;
-                }
-                rc = libusb_claim_interface(candidateHandle, candidate.number);
-                if (rc != LIBUSB_SUCCESS) {
-                    libusb_close(candidateHandle);
-                    continue;
-                }
-                if (candidate.alternate != 0 &&
-                    libusb_set_interface_alt_setting(candidateHandle, candidate.number,
-                                                     candidate.alternate) != LIBUSB_SUCCESS) {
-                    libusb_release_interface(candidateHandle, candidate.number);
-                    libusb_close(candidateHandle);
-                    continue;
-                }
-
-                handle_ = candidateHandle;
-                hci_ = candidate;
-                opened = true;
+            const int detach = libusb_set_auto_detach_kernel_driver(candidateHandle, 1);
+            if (detach != LIBUSB_SUCCESS && detach != LIBUSB_ERROR_NOT_SUPPORTED) {
+                libusb_close(candidateHandle);
+                continue;
             }
+            rc = libusb_claim_interface(candidateHandle, candidate.number);
+            if (rc != LIBUSB_SUCCESS) {
+                libusb_close(candidateHandle);
+                continue;
+            }
+            if (candidate.alternate != 0 &&
+                libusb_set_interface_alt_setting(candidateHandle, candidate.number,
+                                                 candidate.alternate) != LIBUSB_SUCCESS) {
+                libusb_release_interface(candidateHandle, candidate.number);
+                libusb_close(candidateHandle);
+                continue;
+            }
+
+            handle_ = candidateHandle;
+            hci_ = candidate;
+            opened = true;
         }
 
         libusb_free_device_list(devices, 1);
