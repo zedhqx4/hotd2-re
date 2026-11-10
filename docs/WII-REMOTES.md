@@ -25,7 +25,7 @@ Use a dedicated USB Bluetooth adapter for passthrough. For the tested CSR8510 A1
 3. Select **Connect remotes**.
 4. Press the remote's red **SYNC** button during the search.
 
-The direct USB path performs Bluetooth Classic inquiry, remote-name validation, baseband connection, legacy SYNC authentication, link encryption, HID L2CAP setup and HIDP report configuration. It currently supports up to two remotes. The 1+2 guest-pairing path remains available through Windows Bluetooth HID.
+The direct USB path performs Bluetooth Classic inquiry and recognizes the standard Nintendo Wii Remote Class of Device values (using remote-name validation as a fallback for other devices). It uses the proven R1 / unknown-clock-offset HCI Create Connection parameters and accepts a remote-initiated Connection Request if it races with the host request. Initial pairing follows the legacy SYNC host-address PIN exchange, then enables link encryption and opens HID L2CAP/HIDP. QoS and Sniff policy changes are deliberately kept out of the initial pairing sequence. It currently supports up to two remotes. The 1+2 guest-pairing path remains available through Windows Bluetooth HID.
 
 ## DLL API and transport
 
