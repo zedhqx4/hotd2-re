@@ -300,10 +300,10 @@ int main(){
     menu.Update(escape,source);Check(!menu.IsOpen(),"Escape closes setup");
     // Only user preferences are persisted, never Bluetooth addresses, HID paths or button history.
     auto file=std::filesystem::temp_directory_path()/"hotd2-wii-settings-test.ini";
-    source.settings.continuous=true;source.settings.usbPassthrough=true;Check(source.settings.Save(file.string()),"settings save");
-    Settings restored;Check(restored.Load(file.string()) && restored.enabled && restored.continuous && restored.usbPassthrough && restored.player[0].calibration.calibrated,"settings round trip");
-    {std::ofstream f(file);f<<"p1.buttons=4 4 4 4\np1.calibration=nan 0 0 0 1 0 0 0 1\np2.smoothing=100\n";}
-    Check(restored.Load(file.string()) && restored.player[0].buttons==Profile{}.buttons && !restored.player[0].calibration.calibrated && restored.player[1].smoothing==2,"invalid settings fail to safe defaults");
+    source.settings.continuous=true;source.settings.usbPassthrough=true;source.settings.usbVid=0x0A12;source.settings.usbPid=0x0001;Check(source.settings.Save(file.string()),"settings save");
+    Settings restored;Check(restored.Load(file.string()) && restored.enabled && restored.continuous && restored.usbPassthrough && restored.usbVid==0x0A12 && restored.usbPid==0x0001 && restored.player[0].calibration.calibrated,"settings round trip including selected Bluetooth adapter");
+    {std::ofstream f(file);f<<"usb_vid=0x1234\np1.buttons=4 4 4 4\np1.calibration=nan 0 0 0 1 0 0 0 1\np2.smoothing=100\n";}
+    Check(restored.Load(file.string()) && restored.player[0].buttons==Profile{}.buttons && !restored.player[0].calibration.calibrated && restored.player[1].smoothing==2 && restored.usbVid==-1 && restored.usbPid==-1,"invalid settings fail safe, including incomplete USB adapter selection");
     std::filesystem::remove(file);
     puts("PASS native Wii Remote reports, calibration, controls, reconnect slots, menus and settings");
 }
