@@ -10,9 +10,38 @@ target_include_directories(port_input_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_sources(port_input_core PRIVATE input/native_gun_feedback.cpp input/sinden_feedback.cpp input/feedback_settings.cpp)
 
 if(WIN32)
-  target_sources(port_input_core PRIVATE input/wii_remote_win.cpp)
+  target_sources(port_input_core PRIVATE input/wii_remote_win.cpp input/wii_remote_passthrough_win.cpp)
   target_compile_definitions(port_input_core PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
   target_link_libraries(port_input_core PUBLIC hid setupapi bthprops ws2_32)
+
+  option(HOTD2_WII_USB_PASSTHROUGH "Use the optional standalone Wii Bluetooth host DLL" ON)
+  if(HOTD2_WII_USB_PASSTHROUGH)
+    set(WII_BT_BUILD_HOST ON CACHE BOOL "" FORCE)
+    set(WII_BT_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+    set(WII_BT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(WII_BT_LIBRARY_DIR "${PROJECT_SOURCE_DIR}/third_party/WIimoteDLL_Libusbk")
+    if(NOT EXISTS "${WII_BT_LIBRARY_DIR}/CMakeLists.txt")
+      message(FATAL_ERROR "Wii Bluetooth host submodule is missing. Initialize submodules recursively.")
+    endif()
+
+    add_subdirectory("${WII_BT_LIBRARY_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/wiimote_bt")
+    # Preserve the existing artifact layout consumed by HOTD2RE's package workflow.
+    set_target_properties(wii_bt_passthrough PROPERTIES
+      RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>")
+    target_include_directories(port_input_core PRIVATE "${WII_BT_LIBRARY_DIR}/include")
+
+    add_executable(wii_bt_passthrough_api_test ${PROJECT_SOURCE_DIR}/tests/wii_bt_passthrough_api_test.cpp)
+    target_include_directories(wii_bt_passthrough_api_test PRIVATE "${WII_BT_LIBRARY_DIR}/include")
+    add_dependencies(wii_bt_passthrough_api_test wii_bt_passthrough)
+
+    add_executable(wii_bluetooth_probe ${PROJECT_SOURCE_DIR}/tools/wii_bluetooth_probe.cpp)
+    target_link_libraries(wii_bluetooth_probe PRIVATE usb-1.0)
+    target_compile_definitions(wii_bluetooth_probe PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+
+    add_executable(wii_hci_probe ${PROJECT_SOURCE_DIR}/tools/wii_hci_probe.cpp)
+    target_link_libraries(wii_hci_probe PRIVATE usb-1.0)
+    target_compile_definitions(wii_hci_probe PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+  endif()
   add_library(port_input STATIC input/raw_input.cpp input/raw_input_guns.cpp)
   target_include_directories(port_input PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
   target_compile_definitions(port_input PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX)
@@ -301,6 +330,23 @@ if(WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 8)
             "${HOTD2_XESS_SDK}/LICENSE.txt" "${HOTD2_XESS_SDK}/third-party-programs.txt"
             "$<TARGET_FILE_DIR:${vendor_app}>/vendor-licenses/intel")
       endif()
+    endif()
+  endforeach()
+endif()
+
+
+# The shared host DLL remains optional at runtime, but make it available beside
+# each game executable so the existing dynamic loader and package logic find it.
+if(WIN32 AND HOTD2_WII_USB_PASSTHROUGH)
+  foreach(runtime_app IN ITEMS play hotd2)
+    if(TARGET ${runtime_app})
+      add_dependencies(${runtime_app} wii_bt_passthrough)
+      add_custom_command(TARGET ${runtime_app} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "$<TARGET_FILE:wii_bt_passthrough>" "$<TARGET_FILE_DIR:${runtime_app}>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "$<TARGET_FILE:usb-1.0>" "$<TARGET_FILE_DIR:${runtime_app}>"
+        VERBATIM)
     endif()
   endforeach()
 endif()

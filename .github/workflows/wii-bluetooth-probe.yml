@@ -1,0 +1,58 @@
+name: Wii Bluetooth passthrough probe
+
+on:
+  push:
+    branches:
+      - feature/wii-bluetooth-passthrough
+      - feature/wii-usb-host-runtime
+  pull_request:
+    branches:
+      - main
+      - feature/wii-bluetooth-passthrough
+      - feature/wii-usb-host-runtime
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-usb-backend:
+    name: Build USB backend and tests (Windows x86)
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build -A Win32
+          -DHOTD2_SDL3=OFF
+          -DHOTD2_WII_USB_PASSTHROUGH=ON
+
+      - name: Build USB probes and Wii Remote runtime test
+        run: >-
+          cmake --build build --config Release
+          --target wii_bluetooth_probe wii_hci_probe wii_remote_test --parallel
+
+      - name: Verify executables exist
+        shell: pwsh
+        run: |
+          foreach ($name in @("wii_bluetooth_probe.exe", "wii_hci_probe.exe", "wii_remote_test.exe")) {
+            $probe = Get-ChildItem -Path build -Filter $name -Recurse |
+              Select-Object -First 1
+            if (-not $probe) {
+              throw "$name was not produced"
+            }
+            Write-Host "Built: $($probe.FullName)"
+            Write-Host "Size: $($probe.Length) bytes"
+          }
+
+      - name: Upload probe artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wii-bluetooth-probes-windows-x86
+          path: build/**/wii_*probe.exe
+          if-no-files-found: error
+          retention-days: 14
