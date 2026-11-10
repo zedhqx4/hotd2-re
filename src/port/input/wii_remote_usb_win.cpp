@@ -1488,7 +1488,7 @@ private:
             return false;
         }
         SetMessage("Discovered " + std::to_string(candidates.size()) +
-                   " Bluetooth device(s); identifying Wii Remote(s)", true);
+                   " Bluetooth device(s); trying direct Wii Remote connections", true);
 
         bool connectedAny = false;
         for (auto& candidate : candidates) {
