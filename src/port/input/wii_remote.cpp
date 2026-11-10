@@ -99,6 +99,7 @@ std::unique_ptr<Backend> CreateBackend(){return std::make_unique<Unavailable>();
 #endif
 } // namespace input::wii
 
+#ifndef HOTD2_WII_USB_DLL_BUILD
 namespace input {
 WiiRemotes::WiiRemotes(GunSource* f,std::unique_ptr<wii::Backend> b):fallback_(f),backend_(std::move(b)){}
 void WiiRemotes::Configure(){
@@ -147,6 +148,7 @@ void WiiRemotes::BeginFrame(){
     if(fallback_)fallback_->BeginFrame();
 }
 } // namespace input
+#endif // !HOTD2_WII_USB_DLL_BUILD
 
 #ifndef _WIN32
 namespace input::wii {
