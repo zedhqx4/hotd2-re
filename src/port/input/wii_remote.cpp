@@ -108,10 +108,12 @@ std::unique_ptr<Backend> CreateBackend(){return std::make_unique<Unavailable>();
 namespace input {
 WiiRemotes::WiiRemotes(GunSource* f,std::unique_ptr<wii::Backend> b):fallback_(f),backend_(std::move(b)){}
 void WiiRemotes::Configure(){
-    if(backendPassthrough_!=settings.usbPassthrough){
+    if(backendPassthrough_!=settings.usbPassthrough ||
+       (settings.usbPassthrough && (backendUsbVid_!=settings.usbVid || backendUsbPid_!=settings.usbPid))){
         if(backend_)backend_->Enable(false,false);
         backend_=settings.usbPassthrough?wii::CreatePassthroughBackend(settings.usbVid,settings.usbPid):wii::CreateBackend();
         backendPassthrough_=settings.usbPassthrough;
+        backendUsbVid_=settings.usbVid;backendUsbPid_=settings.usbPid;
         snapshot_={};players_={};hadTracking_={};
     }
     backend_->Enable(settings.enabled,settings.continuous);
@@ -120,7 +122,8 @@ void WiiRemotes::Connect(){settings.enabled=true;Configure();backend_->Scan();}
 void WiiRemotes::Disconnect(int p){backend_->Disconnect(p);}
 void WiiRemotes::SwapPlayers(){std::swap(settings.player[0],settings.player[1]);backend_->SwapPlayers();players_={};hadTracking_={};}
 void WiiRemotes::Update(){
-    if(backendPassthrough_!=settings.usbPassthrough)Configure();
+    if(backendPassthrough_!=settings.usbPassthrough ||
+       (settings.usbPassthrough && (backendUsbVid_!=settings.usbVid || backendUsbPid_!=settings.usbPid)))Configure();
     auto fresh=backend_->Poll();
     for(int p=0;p<2;++p){
         fresh.player[p].pressed|=snapshot_.player[p].pressed;snapshot_.player[p]=fresh.player[p];
