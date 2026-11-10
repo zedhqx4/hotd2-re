@@ -83,8 +83,6 @@ struct HciInterface {
 
 struct Candidate {
     std::array<uint8_t, 6> address{};
-    uint8_t pageScanRepetition = 0;
-    uint16_t clockOffset = 0;
     uint32_t classOfDevice = 0;
     std::string name;
 };
@@ -717,8 +715,6 @@ private:
                         const uint8_t* entry = event.data() + 3 + i * kEntrySize;
                         Candidate candidate;
                         std::copy_n(entry, candidate.address.size(), candidate.address.begin());
-                        candidate.pageScanRepetition = entry[6];
-                        candidate.clockOffset = ReadLe16(entry + 11);
                         candidate.classOfDevice = static_cast<uint32_t>(entry[8]) |
                             (static_cast<uint32_t>(entry[9]) << 8) |
                             (static_cast<uint32_t>(entry[10]) << 16);
