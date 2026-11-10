@@ -2,3 +2,7 @@
 	path = src/hook/third_party/Detours
 	url = https://github.com/microsoft/Detours.git
 	ignore = dirty
+
+[submodule "third_party/WIimoteDLL_Libusbk"]
+	path = third_party/WIimoteDLL_Libusbk
+	url = https://github.com/zedhqx4/WIimoteDLL_Libusbk.git
