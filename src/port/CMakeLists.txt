@@ -14,39 +14,24 @@ if(WIN32)
   target_compile_definitions(port_input_core PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
   target_link_libraries(port_input_core PUBLIC hid setupapi bthprops ws2_32)
 
-  option(HOTD2_WII_USB_PASSTHROUGH "Build the optional USB Bluetooth passthrough DLL and diagnostics" ON)
+  option(HOTD2_WII_USB_PASSTHROUGH "Use the optional standalone Wii Bluetooth host DLL" ON)
   if(HOTD2_WII_USB_PASSTHROUGH)
-    include(FetchContent)
-    set(LIBUSB_BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
-    set(LIBUSB_BUILD_TESTING OFF CACHE BOOL "" FORCE)
-    set(LIBUSB_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(LIBUSB_INSTALL_TARGETS OFF CACHE BOOL "" FORCE)
-    set(LIBUSB_INSTALL_PKGCONFIG OFF CACHE BOOL "" FORCE)
-    FetchContent_Declare(libusb_cmake
-      GIT_REPOSITORY https://github.com/libusb/libusb-cmake.git
-      GIT_TAG v1.0.30-0
-      GIT_SHALLOW TRUE)
-    FetchContent_MakeAvailable(libusb_cmake)
+    set(WII_BT_BUILD_HOST ON CACHE BOOL "" FORCE)
+    set(WII_BT_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+    set(WII_BT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(WII_BT_LIBRARY_DIR "${PROJECT_SOURCE_DIR}/third_party/WIimoteDLL_Libusbk")
+    if(NOT EXISTS "${WII_BT_LIBRARY_DIR}/CMakeLists.txt")
+      message(FATAL_ERROR "Wii Bluetooth host submodule is missing. Initialize submodules recursively.")
+    endif()
 
-    # Build a separately loaded runtime. port_input_core never links libusb:
-    # Windows Bluetooth/HID remains the default and keeps working without this DLL.
-    add_library(wii_bt_passthrough SHARED
-      input/wii_remote.cpp
-      input/wii_remote_usb_win.cpp)
-    target_include_directories(wii_bt_passthrough PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_compile_definitions(wii_bt_passthrough PRIVATE
-      WIN32_LEAN_AND_MEAN NOMINMAX HOTD2_WII_USB_DLL_BUILD)
-    target_link_libraries(wii_bt_passthrough PRIVATE usb-1.0 winmm)
-    set_target_properties(wii_bt_passthrough PROPERTIES OUTPUT_NAME "wii_bt_passthrough")
-    # Keep the LGPL libusb runtime beside the optional host DLL. It is not loaded
-    # unless the user selects USB passthrough; package tooling admits this pair only.
-    add_custom_command(TARGET wii_bt_passthrough POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "$<TARGET_FILE:usb-1.0>" "$<TARGET_FILE_DIR:wii_bt_passthrough>"
-      VERBATIM)
+    add_subdirectory("${WII_BT_LIBRARY_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/wiimote_bt")
+    # Preserve the existing artifact layout consumed by HOTD2RE's package workflow.
+    set_target_properties(wii_bt_passthrough PROPERTIES
+      RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>")
+    target_include_directories(port_input_core PRIVATE "${WII_BT_LIBRARY_DIR}/include")
 
     add_executable(wii_bt_passthrough_api_test ${PROJECT_SOURCE_DIR}/tests/wii_bt_passthrough_api_test.cpp)
-    target_include_directories(wii_bt_passthrough_api_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/input)
+    target_include_directories(wii_bt_passthrough_api_test PRIVATE "${WII_BT_LIBRARY_DIR}/include")
     add_dependencies(wii_bt_passthrough_api_test wii_bt_passthrough)
 
     add_executable(wii_bluetooth_probe ${PROJECT_SOURCE_DIR}/tools/wii_bluetooth_probe.cpp)
