@@ -1,4 +1,7 @@
 #include "wii_remote.h"
+#include "wii_remote_passthrough_api.h"
+#include <cstdio>
+#include <new>
 
 #ifdef _WIN32
 #include <libusb.h>
@@ -1600,10 +1603,63 @@ private:
 
 } // namespace
 
-std::unique_ptr<Backend> CreateBackend() {
-    if (HasUsbHciAdapter())
-        return std::make_unique<LibusbBackend>();
-    return CreateWindowsBackend();
+#ifndef HOTD2_WII_USB_DLL_BUILD
+std::unique_ptr<Backend> CreateBackend() { return CreateWindowsBackend(); }
+#else
+extern "C" WII_BT_API uint32_t WII_BT_CALL WiiBt_GetApiVersion(void) { return WII_BT_API_VERSION; }
+extern "C" WII_BT_API int WII_BT_CALL WiiBt_HasCompatibleAdapter(void) { return HasUsbHciAdapter() ? 1 : 0; }
+extern "C" WII_BT_API void* WII_BT_CALL WiiBt_Create(void) {
+    try { return new LibusbBackend(); } catch (...) { return nullptr; }
 }
+extern "C" WII_BT_API void WII_BT_CALL WiiBt_Destroy(void* instance) {
+    delete static_cast<LibusbBackend*>(instance);
+}
+extern "C" WII_BT_API int WII_BT_CALL WiiBt_Enable(void* instance, int enabled, int continuous) {
+    if (!instance) return 0;
+    static_cast<LibusbBackend*>(instance)->Enable(enabled != 0, continuous != 0);
+    return 1;
+}
+extern "C" WII_BT_API int WII_BT_CALL WiiBt_Scan(void* instance) {
+    if (!instance) return 0;
+    static_cast<LibusbBackend*>(instance)->Scan();
+    return 1;
+}
+extern "C" WII_BT_API int WII_BT_CALL WiiBt_Disconnect(void* instance, int player) {
+    if (!instance || player < 0 || player > 1) return 0;
+    static_cast<LibusbBackend*>(instance)->Disconnect(player);
+    return 1;
+}
+extern "C" WII_BT_API int WII_BT_CALL WiiBt_SwapPlayers(void* instance) {
+    if (!instance) return 0;
+    static_cast<LibusbBackend*>(instance)->SwapPlayers();
+    return 1;
+}
+extern "C" WII_BT_API int WII_BT_CALL WiiBt_Poll(void* instance, WiiBtSnapshot* output) {
+    if (!instance || !output || output->struct_size < sizeof(WiiBtSnapshot)) return 0;
+    try {
+        const Snapshot source = static_cast<LibusbBackend*>(instance)->Poll();
+        WiiBtSnapshot result{};
+        result.struct_size = sizeof(result);
+        result.scanning = source.scanning ? 1u : 0u;
+        for (size_t i = 0; i < source.player.size(); ++i) {
+            const Remote& in = source.player[i];
+            WiiBtPlayerState& out = result.player[i];
+            out.struct_size = sizeof(out);
+            out.battery = in.battery;
+            out.buttons = in.buttons;
+            out.pressed = in.pressed;
+            out.connected = in.connected ? 1u : 0u;
+            out.reserved = in.reserved ? 1u : 0u;
+            out.tracking = in.tracking ? 1u : 0u;
+            out.dots = static_cast<uint8_t>(in.dots);
+            out.raw_x = in.raw.x;
+            out.raw_y = in.raw.y;
+        }
+        std::snprintf(result.message, sizeof(result.message), "%s", source.message.c_str());
+        *output = result;
+        return 1;
+    } catch (...) { return 0; }
+}
+#endif
 } // namespace input::wii
 #endif
