@@ -279,12 +279,12 @@ int main(){
     source.settings.player[0].calibration=c;source.SwapPlayers();source.Update();Check(source.Status().player[1].connected && source.settings.player[1].calibration.h==c.h,"player swap moves calibration with remote");
     source.SwapPlayers();source.Update();
     play::WiiMenu menu;
-    for(int row=0;row<7;++row)for(int ink:{10,18,25}) {
+    for(int row=0;row<8;++row)for(int ink:{10,18,25}) {
         menu.Open();play::MenuInput pointer;pointer.pointer=true;pointer.px=40;pointer.py=play::WiiMenu::RowY(row)+float(ink);
         menu.Update(pointer,source);Check(menu.Cursor()==row,"pointer tracks visible setup text");
     }
     menu.Open();
-    for(int i=0;i<3;++i)MenuKey(menu,source,0x20);MenuKey(menu,source,8);
+    for(int i=0;i<4;++i)MenuKey(menu,source,0x20);MenuKey(menu,source,8);
     Check(menu.SelectedPlayer()==0,"player setup can be opened with keyboard or D-pad");
     MenuKey(menu,source,8);Check(menu.CalibrationStep()==0,"calibration starts");
     for(int i=0;i<4;++i){
