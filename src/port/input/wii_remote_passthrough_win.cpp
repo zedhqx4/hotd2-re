@@ -14,6 +14,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 namespace input::wii {
 namespace {
 class WindowsNoticeBackend final : public Backend {
