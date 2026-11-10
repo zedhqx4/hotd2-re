@@ -126,7 +126,14 @@ public:
 private:
     template <typename T>
     T Resolve(const char* name) const {
-        return reinterpret_cast<T>(module_ ? GetProcAddress(module_, name) : nullptr);
+        if (!module_) return nullptr;
+        FARPROC address = GetProcAddress(module_, name);
+        // MSVC x86 may retain the leading underscore of a __cdecl C export.
+        if (!address) {
+            const std::string decorated = std::string("_") + name;
+            address = GetProcAddress(module_, decorated.c_str());
+        }
+        return reinterpret_cast<T>(address);
     }
     HMODULE module_ = nullptr;
     void* instance_ = nullptr;
