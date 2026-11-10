@@ -1,0 +1,73 @@
+name: Wii USB runtime game build
+
+on:
+  push:
+    branches:
+      - feature/wii-usb-host-runtime
+  pull_request:
+    branches:
+      - main
+      - feature/wii-usb-host-runtime
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-x64:
+    name: Build HOTD2RE x64 with USB Wii Remote backend
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build -A x64
+          -DHOTD2_ALLOW_64BIT=ON
+          -DHOTD2_WII_USB_PASSTHROUGH=ON
+
+      - name: Build game and Wii Remote test
+        run: >-
+          cmake --build build --config Release
+          --target hotd2 play wii_remote_test --parallel
+
+      - name: Run Wii Remote protocol and input tests
+        shell: pwsh
+        run: |
+          $test = Get-ChildItem -Path build -Filter wii_remote_test.exe -Recurse |
+            Select-Object -First 1
+          if (-not $test) {
+            throw "wii_remote_test.exe was not produced"
+          }
+          & $test.FullName
+          if ($LASTEXITCODE -ne 0) {
+            throw "wii_remote_test failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Verify game executables
+        shell: pwsh
+        run: |
+          foreach ($name in @("hotd2.exe", "play.exe")) {
+            $exe = Get-ChildItem -Path build -Filter $name -Recurse |
+              Select-Object -First 1
+            if (-not $exe) {
+              throw "$name was not produced"
+            }
+            Write-Host "Built: $($exe.FullName)"
+            Write-Host "Size: $($exe.Length) bytes"
+          }
+
+      - name: Upload x64 runtime build
+        uses: actions/upload-artifact@v4
+        with:
+          name: hotd2re-wii-usb-runtime-windows-x64
+          path: |
+            build/**/hotd2.exe
+            build/**/play.exe
+            build/**/wii_remote_test.exe
+            build/**/wii_*probe.exe
+          if-no-files-found: error
+          retention-days: 14
