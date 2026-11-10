@@ -2,7 +2,7 @@
 
 This document is retained as a compatibility link for older development notes.
 
-The USB Bluetooth HCI backend is **not statically linked into `hotd2.exe` or `play.exe`**. It is built as the optional `wii_bt_passthrough.dll` and loaded dynamically only when **Options > Wii Remotes > USB Bluetooth passthrough** is enabled.
+The USB Bluetooth HCI backend is **not statically linked into `hotd2.exe` or `play.exe`**. It is built as the optional `wii_bt_passthrough.dll`, alongside its dynamically linked `libusb-1.0.dll` dependency. Both are loaded dynamically only when **Options > Wii Remotes > USB Bluetooth passthrough** is enabled.
 
 The default connection path remains Windows Bluetooth HID, including normal Windows-paired Wii Remotes and DolphinBar Mode 4. Users without a compatible USB HCI adapter do not need the DLL and should leave passthrough OFF.
 
