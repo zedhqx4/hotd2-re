@@ -83,19 +83,15 @@ jobs:
         run: |
           ./tools/make_dist.ps1 -Architecture x64 -Exe build/src/port/Release/hotd2.exe -Out build/dist-wii-passthrough
 
-      - name: Upload x64 runtime build
+      - name: Upload x64 release package and verification hashes
         uses: actions/upload-artifact@v4
         with:
           name: hotd2re-wii-usb-runtime-windows-x64
           path: |
-            build/**/hotd2.exe
-            build/**/play.exe
-            build/**/wii_remote_test.exe
-            build/**/wii_bt_passthrough.dll
-            build/**/libusb-1.0.dll
-            build/**/wii_bt_passthrough_api_test.exe
-            build/**/wii_*probe.exe
-            build/dist-wii-passthrough/*.zip
+            build/dist-wii-passthrough/hotd2re-win-x64.zip
+            build/dist-wii-passthrough/hotd2re-win-x64.zip.sha256
+            build/dist-wii-passthrough/hotd2re-win-x64.files.json
+            build/dist-wii-passthrough/hotd2re-win-x64.files.json.sha256
           if-no-files-found: error
           retention-days: 14
 
@@ -135,6 +131,5 @@ jobs:
           path: |
             build-x86/**/wii_bt_passthrough.dll
             build-x86/**/libusb-1.0.dll
-            build-x86/**/wii_bt_passthrough_api_test.exe
           if-no-files-found: error
           retention-days: 14
