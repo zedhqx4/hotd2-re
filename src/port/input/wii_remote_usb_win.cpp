@@ -1395,9 +1395,10 @@ private:
     }
 
     bool FinishConnectedCandidate(const Candidate& candidate, Session& session) {
+        const int player = session.player;
         // Finish authentication and HID setup for either an outgoing or accepted ACL link.
         // QoS/Sniff tuning is deliberately deferred until a basic HID link works.
-        SetMessage("Bluetooth connected; authenticating Wii Remote", true);
+        SetMessage("Bluetooth connected; authenticating " + candidate.name, true);
         std::string authenticationFailure;
         if (!Authenticate(session, authenticationFailure)) {
             // A Link Key Notification can arrive before Authentication Complete.
@@ -1464,8 +1465,6 @@ private:
         session.led = player;
         SetMessage("Wii Remote connected through USB Bluetooth passthrough");
         return true;
-    }
-
     }
 
     bool ConnectCandidate(const Candidate& candidate, int player) {
