@@ -766,10 +766,10 @@ private:
                 } else {
                     complete = true;
                 }
-            } else {
-                // Inquiry only consumes Inquiry Result and Inquiry Complete.
-                // Other asynchronous/controller events are handled by the HCI pump.
-                (void)IsAsynchronousEvent(event);
+            } else if (!IsAsynchronousEvent(event)) {
+                // Do not lose an already-bonded remote's page request while the
+                // user is discovering another controller.
+                pendingEvents_.push_back(std::move(event));
             }
             PumpAcl(1);
         }
@@ -935,6 +935,13 @@ private:
     }
 
     bool Authenticate(Session& session, std::string& failureReason) {
+        std::deque<std::vector<uint8_t>> deferred;
+        const auto restoreDeferred = [&] {
+            while (!deferred.empty()) {
+                pendingEvents_.push_back(std::move(deferred.front()));
+                deferred.pop_front();
+            }
+        };
         bool sawPinRequest = false;
         bool sawLinkKeyRequest = false;
         bool usedStoredLinkKey = false;
@@ -946,6 +953,7 @@ private:
         if (!SendCommand(kHciAuthenticationRequested, parameters.data(),
                          static_cast<uint8_t>(parameters.size()))) {
             failureReason = "HCI Authentication Requested command failed";
+            restoreDeferred();
             return false;
         }
 
@@ -968,6 +976,7 @@ private:
                 if (!SendCommand(kHciPinCodeRequestReply, reply.data(),
                                  static_cast<uint8_t>(reply.size()))) {
                     failureReason = "HCI PIN Code Request Reply command failed";
+                    restoreDeferred();
                     return false;
                 }
                 sentPinReply = true;
@@ -984,11 +993,13 @@ private:
                     if (!SendCommand(kHciLinkKeyRequestReply, reply.data(),
                                      static_cast<uint8_t>(reply.size()))) {
                         failureReason = "HCI Link Key Request Reply command failed";
+                        restoreDeferred();
                         return false;
                     }
                 } else if (!SendCommand(kHciLinkKeyRequestNegativeReply,
                                         address.data(), static_cast<uint8_t>(address.size()))) {
                     failureReason = "HCI Link Key Request Negative Reply command failed";
+                    restoreDeferred();
                     return false;
                 }
             } else if (event[0] == kEventLinkKeyNotification && event.size() >= 25) {
@@ -996,8 +1007,10 @@ private:
             } else if (event[0] == kEventAuthenticationComplete && event.size() >= 5) {
                 const uint16_t eventHandle =
                     static_cast<uint16_t>(ReadLe16(event.data() + 3) & 0x0FFF);
-                if (eventHandle != session.handle)
+                if (eventHandle != session.handle) {
+                    deferred.push_back(std::move(event));
                     continue;
+                }
                 if (event[2] != 0) {
                     // Keep the diagnostic short: the classic Wii menu renders
                     // status.message on one line and clips longer messages.
@@ -1009,16 +1022,18 @@ private:
                                   sawLinkKeyRequest ? 'Y' : 'N',
                                   usedStoredLinkKey ? 'Y' : 'N');
                     failureReason = detail;
+                    restoreDeferred();
                     return false;
                 }
                 authenticated = true;
-            } else {
-                // Unrelated HCI events are not authentication input; do not requeue
-                // them where they could block the next phase's event wait.
-                (void)IsAsynchronousEvent(event);
+            } else if (!IsAsynchronousEvent(event)) {
+                // Preserve events for other connections until this authentication
+                // transaction completes; never feed them back into this same wait.
+                deferred.push_back(std::move(event));
             }
             PumpAcl(1);
         }
+        restoreDeferred();
         if (!authenticated && failureReason.empty()) {
             failureReason = std::string("AUTH TIMEOUT | PIN=") +
                             (sawPinRequest ? "Y" : "N") +
