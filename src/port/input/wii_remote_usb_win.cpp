@@ -72,6 +72,7 @@ constexpr uint16_t kHciLinkKeyRequestNegativeReply = 0x040C;
 constexpr uint16_t kHciWriteStoredLinkKey = 0x0C11;
 constexpr uint16_t kHciDeleteStoredLinkKey = 0x0C12;
 constexpr uint16_t kHciPinCodeRequestReply = 0x040D;
+constexpr uint16_t kHciWriteScanEnable = 0x0C1A;
 
 constexpr uint16_t kL2capSignalingCid = 0x0001;
 constexpr uint16_t kL2capHidControlPsm = 0x0011;
@@ -315,6 +316,7 @@ private:
     std::array<Session, 2> sessions_{};
     std::array<std::array<uint8_t, 6>, 2> slotAddresses_{};
     std::array<bool, 2> slotReserved_{};
+    std::array<bool, 2> pendingIncoming_{};
     std::deque<std::vector<uint8_t>> pendingEvents_;
     std::map<std::array<uint8_t, 6>, std::array<uint8_t, 16>> linkKeys_;
     std::set<uint16_t> completedDisconnects_;
@@ -437,6 +439,7 @@ private:
         for (int i = 0; i < 2; ++i)
             sessions_[i] = {};
         pendingEvents_.clear();
+        pendingIncoming_ = {};
         initialized_ = false;
         if (handle_) {
             libusb_release_interface(handle_, hci_.number);
@@ -703,6 +706,14 @@ private:
         }
         std::copy_n(response.begin() + 6, localAddress_.size(), localAddress_.begin());
         RestoreLinkKeys();
+        // A bonded Wii Remote wakes and initiates an ACL connection when a button
+        // is pressed. Page Scan must remain enabled while the runtime is idle so
+        // that the host can receive and accept that reconnect without a new Inquiry.
+        const uint8_t pageScanOnly = 0x02;
+        if (!SendCommand(kHciWriteScanEnable, &pageScanOnly, 1)) {
+            SetMessage("Could not enable Bluetooth page scan for Wii Remote reconnection");
+            return false;
+        }
         initialized_ = true;
         SetMessage("USB Bluetooth ready; press red SYNC on the Wii Remote");
         return true;
@@ -803,6 +814,13 @@ private:
     int FindFreeSlot() const {
         for (int i = 0; i < 2; ++i)
             if (!sessions_[i].inUse)
+                return i;
+        return -1;
+    }
+
+    int FindReservedSlotForAddress(const std::array<uint8_t, 6>& address) const {
+        for (int i = 0; i < 2; ++i)
+            if (slotReserved_[i] && slotAddresses_[i] == address && !sessions_[i].inUse)
                 return i;
         return -1;
     }
@@ -1376,21 +1394,8 @@ private:
         return true;
     }
 
-    bool ConnectCandidate(const Candidate& candidate, int player) {
-        Session& session = sessions_[player];
-        session = {};
-        session.player = player;
-        session.control = {0x0011, kLocalControlCid, 0, 3};
-        session.interrupt = {0x0013, kLocalInterruptCid, 0, 4};
-
-        SetMessage("Connecting to " + candidate.name, true);
-        if (!ConnectBaseband(candidate, session)) {
-            session = {};
-            ClearVisible(player);
-            return false;
-        }
-
-        // Keep initial pairing identical to the known-good standalone sequence.
+    bool FinishConnectedCandidate(const Candidate& candidate, Session& session) {
+        // Finish authentication and HID setup for either an outgoing or accepted ACL link.
         // QoS/Sniff tuning is deliberately deferred until a basic HID link works.
         SetMessage("Bluetooth connected; authenticating Wii Remote", true);
         std::string authenticationFailure;
@@ -1461,6 +1466,24 @@ private:
         return true;
     }
 
+    }
+
+    bool ConnectCandidate(const Candidate& candidate, int player) {
+        Session& session = sessions_[player];
+        session = {};
+        session.player = player;
+        session.control = {0x0011, kLocalControlCid, 0, 3};
+        session.interrupt = {0x0013, kLocalInterruptCid, 0, 4};
+
+        SetMessage("Connecting to " + candidate.name, true);
+        if (!ConnectBaseband(candidate, session)) {
+            session = {};
+            ClearVisible(player);
+            return false;
+        }
+        return FinishConnectedCandidate(candidate, session);
+    }
+
     bool DisconnectSession(Session& session) {
         if (!handle_ || !session.inUse)
             return true;
@@ -1501,6 +1524,61 @@ private:
             return;
         if (event[0] == kEventLinkKeyNotification && event.size() >= 25) {
             RememberLinkKey(event);
+            return;
+        }
+        if (event[0] == kEventConnectionRequest && event.size() >= 12 && event[11] == 0x01) {
+            std::array<uint8_t, 6> address{};
+            std::copy_n(event.begin() + 2, address.size(), address.begin());
+            const int player = FindReservedSlotForAddress(address);
+            // Only accept a remote that was previously bonded by this application.
+            // New remotes still use the explicit Inquiry + legacy PIN pairing path.
+            if (player < 0 || linkKeys_.find(address) == linkKeys_.end())
+                return;
+            std::array<uint8_t, 7> parameters{};
+            std::copy(address.begin(), address.end(), parameters.begin());
+            parameters[6] = 0x00; // Become master, matching the proven SYNC path.
+            pendingIncoming_[player] = true;
+            if (!SendCommand(kHciAcceptConnectionRequest, parameters.data(),
+                             static_cast<uint8_t>(parameters.size()))) {
+                pendingIncoming_[player] = false;
+                SetMessage("Could not accept reconnect request from paired Wii Remote");
+                return;
+            }
+            SetMessage("Accepting reconnect from paired Wii Remote", true);
+            return;
+        }
+        if (event[0] == kEventConnectionComplete && event.size() >= 13) {
+            std::array<uint8_t, 6> address{};
+            std::copy_n(event.begin() + 5, address.size(), address.begin());
+            const int player = FindReservedSlotForAddress(address);
+            if (player < 0 || !pendingIncoming_[player])
+                return;
+            pendingIncoming_[player] = false;
+            if (event[2] != 0) {
+                char status[3]{};
+                std::snprintf(status, sizeof(status), "%02X", event[2]);
+                SetMessage(std::string("Wii Remote reconnect failed (HCI 0x") + status + ")");
+                return;
+            }
+
+            Candidate candidate;
+            candidate.address = address;
+            candidate.name = "Nintendo Wii Remote";
+            Session& session = sessions_[player];
+            session = {};
+            session.player = player;
+            session.inUse = true;
+            session.ready = false;
+            session.address = address;
+            session.handle = static_cast<uint16_t>(ReadLe16(event.data() + 3) & 0x0FFF);
+            session.control = {0x0011, kLocalControlCid, 0, 3};
+            session.interrupt = {0x0013, kLocalInterruptCid, 0, 4};
+            session.state = {};
+            session.state.reserved = true;
+            session.lastReport = Clock::now();
+            session.lastStatus = session.lastReport;
+            SetMessage("Bluetooth reconnect established; authenticating Wii Remote", true);
+            (void)FinishConnectedCandidate(candidate, session);
             return;
         }
         if (event[0] == kEventDisconnectionComplete && event.size() >= 6) {
