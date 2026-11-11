@@ -1529,9 +1529,10 @@ private:
             std::array<uint8_t, 6> address{};
             std::copy_n(event.begin() + 2, address.size(), address.begin());
             const int player = FindReservedSlotForAddress(address);
-            // Only accept a remote that was previously bonded by this application.
-            // New remotes still use the explicit Inquiry + legacy PIN pairing path.
-            if (player < 0 || linkKeys_.find(address) == linkKeys_.end())
+            // The menu's Automatic reconnect option controls unsolicited wake/reconnect.
+            // Only accept a remote previously bonded by this application; new remotes
+            // still use the explicit Inquiry + legacy PIN pairing path.
+            if (!continuous_ || player < 0 || linkKeys_.find(address) == linkKeys_.end())
                 return;
             std::array<uint8_t, 7> parameters{};
             std::copy(address.begin(), address.end(), parameters.begin());
