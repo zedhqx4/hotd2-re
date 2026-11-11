@@ -529,12 +529,13 @@ private:
         }
         if (event[0] == kEventDisconnectionComplete && event.size() >= 6) {
             const uint16_t h = ReadLe16(event.data() + 3) & 0x0FFF;
-            if (event[2] == 0)
+            if (event[2] == 0) {
                 completedDisconnects_.insert(h);
-            for (int i = 0; i < 2; ++i) {
-                if (sessions_[i].inUse && sessions_[i].handle == h) {
-                    sessions_[i] = {};
-                    ClearVisible(i);
+                for (int i = 0; i < 2; ++i) {
+                    if (sessions_[i].inUse && sessions_[i].handle == h) {
+                        sessions_[i] = {};
+                        ClearVisible(i);
+                    }
                 }
             }
             return true;
@@ -715,7 +716,7 @@ private:
             return false;
         }
         initialized_ = true;
-        SetMessage("USB Bluetooth ready; press red SYNC on the Wii Remote");
+        SetMessage("USB Bluetooth ready; connect a Wii Remote");
         return true;
     }
 
@@ -1394,7 +1395,8 @@ private:
         return true;
     }
 
-    bool FinishConnectedCandidate(const Candidate& candidate, Session& session) {
+    bool FinishConnectedCandidate(const Candidate& candidate, Session& session,
+                                  bool preserveBondOnAuthenticationFailure = false) {
         const int player = session.player;
         // Finish authentication and HID setup for either an outgoing or accepted ACL link.
         // QoS/Sniff tuning is deliberately deferred until a basic HID link works.
@@ -1405,7 +1407,8 @@ private:
             // Do not keep a key from a failed exchange: that would make every
             // later SYNC attempt reuse the same stale key instead of falling back
             // to the working legacy host-address PIN exchange.
-            if (linkKeys_.erase(session.address) != 0)
+            if (!preserveBondOnAuthenticationFailure &&
+                linkKeys_.erase(session.address) != 0)
                 SaveLinkKeys();
             // This message is shown in the one-line legacy menu status field.
             SetMessage(authenticationFailure);
@@ -1529,14 +1532,15 @@ private:
             std::array<uint8_t, 6> address{};
             std::copy_n(event.begin() + 2, address.size(), address.begin());
             const int player = FindReservedSlotForAddress(address);
-            // The menu's Automatic reconnect option controls unsolicited wake/reconnect.
-            // Only accept a remote previously bonded by this application; new remotes
-            // still use the explicit Inquiry + legacy PIN pairing path.
-            if (!continuous_ || player < 0 || linkKeys_.find(address) == linkKeys_.end())
+            // Automatic reconnect is passive: Page Scan remains enabled while the
+            // worker services HCI events. Discovery is a separate, user-requested flow.
+            // Only accept a remote bonded by this application.
+            if (!continuous_ || player < 0 || pendingIncoming_[player] ||
+                linkKeys_.find(address) == linkKeys_.end())
                 return;
             std::array<uint8_t, 7> parameters{};
             std::copy(address.begin(), address.end(), parameters.begin());
-            parameters[6] = 0x00; // Become master, matching the proven SYNC path.
+            parameters[6] = 0x00; // Become master, matching the proven initial connection.
             pendingIncoming_[player] = true;
             if (!SendCommand(kHciAcceptConnectionRequest, parameters.data(),
                              static_cast<uint8_t>(parameters.size()))) {
@@ -1578,10 +1582,11 @@ private:
             session.lastReport = Clock::now();
             session.lastStatus = session.lastReport;
             SetMessage("Bluetooth reconnect established; authenticating Wii Remote", true);
-            (void)FinishConnectedCandidate(candidate, session);
+            (void)FinishConnectedCandidate(candidate, session, true);
             return;
         }
-        if (event[0] == kEventDisconnectionComplete && event.size() >= 6) {
+        if (event[0] == kEventDisconnectionComplete && event.size() >= 6 &&
+            event[2] == 0) {
             const uint16_t eventHandle =
                 static_cast<uint16_t>(ReadLe16(event.data() + 3) & 0x0FFF);
             for (int i = 0; i < 2; ++i) {
@@ -1789,8 +1794,10 @@ private:
                 std::lock_guard lock(commandMutex_);
                 scanDeadline = scanDeadline_;
             }
-            const bool scanActive = requested || continuous_ ||
-                                    Clock::now() < scanDeadline;
+            // Automatic reconnect does not mean continuous Inquiry. Repeated
+            // discovery would monopolize the HCI event stream and starve Page Scan
+            // reconnect requests from already bonded Wii Remotes.
+            const bool scanActive = requested || Clock::now() < scanDeadline;
             if (scanActive && FindFreeSlot() >= 0) {
                 (void)ConnectDiscoveredRemotes();
                 if (!continuous_ && Clock::now() >= scanDeadline) {
